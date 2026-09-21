@@ -11,14 +11,16 @@
   "workspaces": [
     "apps/*",
     "packages/*",
-    "services/workers"
+    "services/workers",
+    "services/agents",
+    "services/sandbox"
   ],
   "scripts": {
     "dev": "npm run build:packages && concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "npm run dev -w @nexus/api",
     "dev:web": "npm run dev -w @nexus/web",
     "build": "npm run build:packages && npm run build -w @nexus/api -w @nexus/web",
-    "build:packages": "npm run build -w @nexus/config -w @nexus/contracts -w @nexus/core -w @nexus/db -w @nexus/observability -w @nexus/workers -w @nexus/agents",
+    "build:packages": "npm run build -w @nexus/config -w @nexus/contracts -w @nexus/core -w @nexus/db -w @nexus/observability -w @nexus/workers -w @nexus/agents -w @nexus/sandbox",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "test:watch": "vitest",

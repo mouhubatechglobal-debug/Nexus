@@ -1,23 +1,39 @@
-import { useState } from 'react';
-import { Button, Card, CopyButton, PageHeader, SelectField, TextField, Toggle } from '../components/ui';
+import { useCallback, useEffect, useState } from 'react';
+import { ApiError, api, type PayAdapter, type PayTransaction } from '../lib/api';
+import { useAuth } from '../lib/auth';
+import { Badge, Button, Card, CopyButton, DataTable, EmptyState, PageHeader, SelectField, TextField, Toggle, type Column } from '../components/ui';
+
+/** Frais NEXUS : 3,5 % = 350 bps — calculés côté serveur, ceci n'est qu'un aperçu. */
+const FEE_BPS = 350;
 
 export function SettingsPage() {
-  const [name, setName] = useState('Alex Martin');
-  const [email, setEmail] = useState('alex@nexus.studio');
+  const { user } = useAuth();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [workspace, setWorkspace] = useState('Nexus Studio');
   const [region, setRegion] = useState('eu-west');
   const [saved, setSaved] = useState(false);
+
+  // Pré-remplissage avec les données RÉELLES de la session.
+  useEffect(() => {
+    if (user) {
+      setName(user.displayName ?? '');
+      setEmail(user.email);
+    }
+  }, [user]);
+
+  /** Sauvegarde locale honnête : aucune route de profil n'existe côté API. */
+  const save = () => {
+    window.localStorage.setItem('nexus.settings', JSON.stringify({ workspace, region, animations, glass, notifEmail, notifPush, notifWeekly }));
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 3200);
+  };
 
   const [animations, setAnimations] = useState(true);
   const [glass, setGlass] = useState(true);
   const [notifEmail, setNotifEmail] = useState(true);
   const [notifPush, setNotifPush] = useState(false);
   const [notifWeekly, setNotifWeekly] = useState(true);
-
-  const save = () => {
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 2600);
-  };
 
   return (
     <>
@@ -43,10 +59,10 @@ export function SettingsPage() {
             <TextField id="profil-nom" label="Nom complet" value={name} onChange={setName} required />
             <TextField id="profil-email" label="E-mail" type="email" value={email} onChange={setEmail} required />
             <div className="form-actions" style={{ gridColumn: '1 / -1' }}>
-              <Button type="submit">Mettre à jour</Button>
+              <Button type="submit">Enregistrer localement</Button>
               {saved ? (
                 <span className="saved-note" role="status">
-                  Préférences enregistrées ✓
+                  Préférences locales enregistrées — le profil n'est pas encore persisté côté serveur.
                 </span>
               ) : null}
             </div>
@@ -91,7 +107,7 @@ export function SettingsPage() {
                 { value: 'us-east', label: 'US — Virginie (us-east)' },
                 { value: 'af-north', label: 'Afrique — Lomé (af-north)' },
               ]}
-              hint="La migration de région sera disponible avec le backend persistant."
+              hint="Sélecteur informatif : la migration de région n'est pas implémentée côté API."
             />
             <div className="field">
               <span className="field-label">URL de l'API</span>
@@ -106,18 +122,216 @@ export function SettingsPage() {
 
         <Card title="Zone sensible" subtitle="Actions irréversibles" className="danger-zone">
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-            <Button variant="danger" icon="alert">
+            <Button variant="danger" icon="alert" disabled>
               Réinitialiser l'espace
             </Button>
-            <Button variant="danger" icon="alert">
+            <Button variant="danger" icon="alert" disabled>
               Supprimer le compte
             </Button>
           </div>
           <p className="muted" style={{ marginTop: 12, fontSize: 12.5 }}>
-            Inactives à cette étape : l'authentification et la persistance arrivent dans un prompt ultérieur.
+            Non implémenté à cette étape (aucune route API de suppression) — boutons désactivés
+            pour éviter tout faux succès.
           </p>
         </Card>
       </div>
+
+      <PayPanel />
     </>
+  );
+}
+
+/* ----------------------------- NEXUS Pay ------------------------------ */
+
+/**
+ * NEXUS Pay (Prompt 21) — adaptation minimale côté interface.
+ * Les adaptateurs (Mixx by Yas, Moov Money, Wave, MTN Money, Carte) sont des
+ * ABSTRACTIONS : aucun n'est configuré, aucune API réelle n'est appelée.
+ * Aucune donnée de carte n'est jamais demandée : checkout tokenisé côté serveur.
+ */
+function PayPanel() {
+  const { organization } = useAuth();
+  const isAdmin = organization?.role === 'admin' || organization?.role === 'owner';
+  const [adapters, setAdapters] = useState<PayAdapter[]>([]);
+  const [transactions, setTransactions] = useState<PayTransaction[]>([]);
+  const [providerCode, setProviderCode] = useState('wave');
+  const [amount, setAmount] = useState('100000');
+  const [payoutAmount, setPayoutAmount] = useState('');
+  const [payoutToken, setPayoutToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setError(null);
+      const [adapterList, transactionPage] = await Promise.all([api.payAdapters(), api.payTransactions(1, 8)]);
+      setAdapters(adapterList);
+      setTransactions(transactionPage.data);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Chargement NEXUS Pay impossible');
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const numericAmount = Number.parseInt(amount, 10);
+  const validAmount = Number.isFinite(numericAmount) && numericAmount >= 100 && numericAmount <= 10_000_000;
+  const fee = validAmount ? Math.floor((numericAmount * FEE_BPS) / 10_000) : 0;
+  const net = validAmount ? numericAmount - fee : 0;
+
+  const createTransaction = async () => {
+    if (!validAmount) {
+      setError('Montant invalide : entier entre 100 et 10 000 000 XOF.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.payCreateTransaction({
+        providerCode,
+        amount: numericAmount,
+        idempotencyKey: `ui-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      });
+      setNotice(
+        result.idempotentReplay
+          ? 'Transaction déjà existante (clé idempotente réutilisée).'
+          : `Transaction ${result.transaction.status === 'pending' ? 'enregistrée (pending)' : result.transaction.status} — frais ${(FEE_BPS / 100).toFixed(1)} % calculés côté serveur.`,
+      );
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Création impossible');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createPayout = async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const payout = await api.payCreatePayout({ amount: Number.parseInt(payoutAmount, 10), destinationToken: payoutToken.trim() });
+      setNotice(`Payout de ${payout.amount} ${payout.currency} créé (${payout.status}).`);
+      setPayoutAmount('');
+      setPayoutToken('');
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Payout impossible');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const columns: Column<PayTransaction>[] = [
+    { key: 'providerCode', header: 'Provider', render: (row) => <span className="mono">{row.providerCode}</span> },
+    { key: 'amount', header: 'Montant', align: 'right', render: (row) => <span className="mono">{row.amount.toLocaleString('fr-FR')} {row.currency}</span> },
+    { key: 'fee', header: 'Frais 3,5 %', align: 'right', render: (row) => <span className="mono">{row.feeAmount.toLocaleString('fr-FR')}</span> },
+    { key: 'net', header: 'Net', align: 'right', render: (row) => <span className="mono">{row.netAmount.toLocaleString('fr-FR')}</span> },
+    {
+      key: 'status',
+      header: 'Statut',
+      render: (row) => (
+        <Badge tone={row.status === 'succeeded' ? 'green' : row.status === 'failed' ? 'red' : row.status === 'pending' ? 'amber' : 'cyan'}>
+          {row.status}
+        </Badge>
+      ),
+    },
+    { key: 'createdAt', header: 'Date', align: 'right', render: (row) => new Date(row.createdAt).toLocaleString('fr-FR') },
+  ];
+
+  return (
+    <Card
+      title="NEXUS Pay"
+      subtitle="Adaptateurs de paiement — abstractions, aucun provider réel configuré"
+    >
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+        {adapters.map((adapter) => (
+          <span key={adapter.code} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, border: '1px solid var(--border)', borderRadius: 10, padding: '6px 10px', fontSize: 13 }}>
+            <span className="cell-strong">{adapter.displayName}</span>
+            <Badge tone={adapter.configured ? 'green' : 'neutral'}>{adapter.configured ? 'configuré' : 'non configuré'}</Badge>
+          </span>
+        ))}
+      </div>
+      <p className="muted" style={{ fontSize: 12.5, marginBottom: 18 }}>
+        Aucune intégration réelle n'est active : tant que les identifiants providers ne sont pas configurés côté
+        serveur, aucune transaction ne peut être encaissée. Les données de carte ne sont JAMAIS demandées —
+        le paiement passe par un checkout hébergé tokenisé.
+      </p>
+
+      <div className="split-2">
+        <div>
+          <h3 style={{ fontSize: 14, marginBottom: 10 }}>Nouvelle transaction</h3>
+          <form
+            className="form-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void createTransaction();
+            }}
+          >
+            <SelectField
+              id="pay-provider"
+              label="Provider"
+              value={providerCode}
+              onChange={setProviderCode}
+              options={adapters.map((adapter) => ({ value: adapter.code, label: adapter.displayName }))}
+            />
+            <TextField id="pay-amount" label="Montant (XOF)" value={amount} onChange={setAmount} hint="Entier entre 100 et 10 000 000." />
+            <div className="field">
+              <span className="field-label">Aperçu des frais (serveur : 3,5 %)</span>
+              <p className="mono" style={{ fontSize: 13, margin: 0 }}>
+                {validAmount ? `${numericAmount.toLocaleString('fr-FR')} → frais ${fee.toLocaleString('fr-FR')} → net ${net.toLocaleString('fr-FR')} XOF` : 'Montant invalide'}
+              </p>
+            </div>
+            <div className="form-actions">
+              <Button type="submit" disabled={busy || !validAmount}>
+                Créer la transaction
+              </Button>
+            </div>
+          </form>
+
+          {isAdmin ? (
+            <form
+              className="form-grid"
+              style={{ marginTop: 18 }}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void createPayout();
+              }}
+            >
+              <h3 style={{ fontSize: 14, margin: 0 }}>Retrait (payout) — admin</h3>
+              <TextField id="payout-amount" label="Montant (XOF)" value={payoutAmount} onChange={setPayoutAmount} hint="Solde disponible requis." />
+              <TextField id="payout-token" label="Jeton de destination" value={payoutToken} onChange={setPayoutToken} hint="Jeton tokenisé tok_… — jamais de coordonnées brutes." />
+              <div className="form-actions">
+                <Button type="submit" variant="outline" disabled={busy || !payoutAmount || !payoutToken}>
+                  Demander le payout
+                </Button>
+              </div>
+            </form>
+          ) : null}
+        </div>
+
+        <div>
+          <h3 style={{ fontSize: 14, marginBottom: 10 }}>Transactions récentes</h3>
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
+          {notice && (
+            <p className="saved-note" role="status">
+              {notice}
+            </p>
+          )}
+          {transactions.length === 0 ? (
+            <EmptyState icon="database" title="Aucune transaction" hint="Les transactions réellement créées apparaîtront ici." />
+          ) : (
+            <DataTable columns={columns} rows={transactions} rowKey={(row) => row.id} caption="Transactions NEXUS Pay récentes" />
+          )}
+        </div>
+      </div>
+    </Card>
   );
 }

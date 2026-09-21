@@ -10,3 +10,7 @@ export * from './studio.js';
 export * from './lab.js';
 export * from './audits.js';
 export * from './ai.js';
+export * from './jobs.js';
+export * from './deployments.js';
+export * from './analytics.js';
+export * from './pay.js';

@@ -95,3 +95,78 @@ Base de données : 11 tables (`users`, `sessions`, `organizations`,
 `organization_members`, `projects`, `brain_entries`, `project_files`,
 `file_versions`, `studio_designs`, `lab_entries`, `project_audits`),
 migrations Drizzle dans `packages/db/drizzle/`.
+
+## Plateforme (Prompts 17-22)
+
+### 17 — Jobs / BullMQ
+
+`@nexus/workers` : `createQueue` (producteur, `enableOfflineQueue:false` →
+échec rapide si Redis absent), `createWorker` (consommateur, retry 3,
+backoff exponentiel 1 s), `InProcessQueue` (même contrat sans serveur,
+défaut hors production). Job interne réel : `nexus.digest` (compte
+projets/Brain/événements d'une organisation) — flux API → Queue → Worker →
+Résultat persisté, consultable via `POST /v1/jobs/digest` (202) puis
+`GET /v1/jobs/:jobId`. **Aucun code utilisateur dans le worker** : le seul
+processor est interne et typé (`DigestPayload → DigestResult`).
+`QUEUE_DRIVER` : `memory` (défaut) ou `bullmq` (Redis requis ; injoignable
+→ 503 honnête, jamais d'attente infinie).
+
+### 18 — Sandbox (ARCHITECTURE_ONLY)
+
+`@nexus/sandbox` : contrat `Job → SandboxPolicy → Execution → Result` avec
+bornes validées (CPU 32–1024 parts, RAM 64–2048 Mo, timeout 0,5–60 s,
+filesystem `none|workspace`, réseau `none|bridged` — bridged interdit).
+Les drivers `gvisor`/`firecracker`/`local-process` sont déclarés
+`architectureOnly: true` : toute exécution lève
+`SandboxUnavailableError('[ARCHITECTURE_ONLY] …')`. **Aucun code non fiable
+n'est jamais exécuté dans le processus principal** ; l'application ne
+prétend pas être sécurisée tant que l'isolation réelle n'existe pas.
+
+### 19 — Déploiements
+
+Pipeline `build → test → security → staging → production` persisté
+(`deployment_stages` : statut, début, fin, logs horodatés, erreur).
+L'étape SECURITY scanne réellement les fichiers du projet (clés privées,
+`AKIA…`, certificats) et fait échouer le pipeline. **La production n'est
+jamais automatique** : créer un déploiement production le laisse `pending`
+jusqu'à `POST …/promote {confirm:true}` (réservé admin) ; `cancel` annule.
+Environnement contrôlé uniquement : les étapes sont des simulations
+honnêtes, aucun déploiement réel n'est déclenché.
+
+### 20 — Analytics
+
+`analytics_events` : organisation/projet/type (`^[a-z][a-z0-9._-]*$`)/
+timestamp/metadata validée (≤ 25 clés, valeurs bornées)/environnement
+`demo|live` **obligatoire — DEMO et LIVE ne sont jamais mélangés**.
+API : `POST /v1/analytics/events` (anti-IDOR projet↔org), `GET …/events`
+(pagination), `GET …/metrics?days≤90` (total, par type, par jour).
+Interface : Dashboard et Analyse affichent les données réelles avec un
+sélecteur d'environnement explicite.
+
+### 21 — NEXUS Pay
+
+Chaîne `PaymentProvider → Router → TransactionEngine → FeeEngine →
+Ledger → WebhookHandler → Reconciliation → Payout`. Modèles
+`merchants`, `payment_providers`, `transactions`, `ledger_entries`,
+`payouts`. Adaptateurs **Mixx by Yas / Moov Money / Wave / MTN Money /
+Carte = abstractions** (`configured:false`, aucun appel réseau fabriqué) ;
+cartes : **jamais de PAN/CVV** (schémas `.strict()`, checkout tokenisé
+`tok_…`). Commission **350 bps calculée côté serveur**
+(100 000 → 3 500 frais → 96 500 net). Idempotence `(organisation, clé)`,
+webhooks HMAC-SHA256 en temps constant + rejeu idempotent, grand livre en
+partie double, réconciliation par comparaison de références, payouts
+(tokenisés, admin, solde requis). Aucun paiement réel n'est testé ici.
+
+### 22 — Audit final
+
+Méthode : analyse d'abord, corrections ensuite (build → runtime →
+sécurité → auth → multi-tenant → db → API → jobs → IA → paiements →
+tests → production). Rapport dans `docs/audit-final.md` : constats
+P0–P3 (fichier/problème/impact/solution), compteurs exacts (fichiers,
+tests, builds, migrations), intégrations externes réellement
+configurables, maturité justifiée — **aucun pourcentage inventé**.
+
+Base de données : 19 tables (les 11 précédentes + `deployments`,
+`deployment_stages`, `analytics_events`, `merchants`,
+`payment_providers`, `transactions`, `ledger_entries`, `payouts`),
+migrations Drizzle `0001` et `0002`.

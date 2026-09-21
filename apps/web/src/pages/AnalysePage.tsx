@@ -1,75 +1,159 @@
-import { useState } from 'react';
-import { ERROR_BREAKDOWN, LATENCY_MODULES, REQUESTS_14D, REQUEST_LABELS_14D } from '../data/mock';
+import { useCallback, useEffect, useState } from 'react';
+import { ApiError, api, type AnalyticsEnvironment, type AnalyticsEvent, type AnalyticsMetrics } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import { AreaChart, BarChart } from '../components/Charts';
-import { Card, FilterChips, PageHeader, ProgressBar, StatCard } from '../components/ui';
+import { Badge, Button, Card, DataTable, EmptyState, FilterChips, PageHeader, StatCard, type Column } from '../components/ui';
 
+const ENV_LABEL: Record<AnalyticsEnvironment, string> = { demo: 'Démo', live: 'Live' };
+
+/**
+ * Analyse — connecté aux Analytics RÉELS (Prompt 20).
+ * Les environnements DEMO et LIVE ne sont JAMAIS mélangés : un sélecteur
+ * explicite pilote chaque requête et chaque métrique affichée.
+ */
 export function AnalysePage() {
-  const [range, setRange] = useState('14j');
-  const days = range === '7j' ? 7 : 14;
+  const { organization } = useAuth();
+  const [environment, setEnvironment] = useState<AnalyticsEnvironment>('demo');
+  const [range, setRange] = useState('7');
+  const [metrics, setMetrics] = useState<AnalyticsMetrics | null>(null);
+  const [events, setEvents] = useState<AnalyticsEvent[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const days = Number(range);
 
-  const data = REQUESTS_14D.slice(-days);
-  const labels = REQUEST_LABELS_14D.slice(-days);
+  const load = useCallback(async () => {
+    if (!organization) return;
+    try {
+      setError(null);
+      const [metricsResult, eventsResult] = await Promise.all([
+        api.analyticsMetrics(organization.id, environment, days),
+        api.analyticsEvents({ organizationId: organization.id, environment, page, limit: 10 }),
+      ]);
+      setMetrics(metricsResult);
+      setEvents(eventsResult.data);
+      setTotalPages(eventsResult.totalPages);
+      setTotal(eventsResult.total);
+    } catch (caught) {
+      setMetrics(null);
+      setEvents([]);
+      setError(caught instanceof ApiError ? caught.message : 'Chargement des analytics impossible');
+    }
+  }, [organization, environment, days, page]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [environment, range]);
+
+  const daily = metrics?.daily ?? [];
+  const labels = daily.map((entry) => entry.day.slice(5).split('-').reverse().join('/'));
+  const topTypes = (metrics?.byType ?? []).slice(0, 6).map((entry) => ({ label: entry.type, value: entry.count, hint: `${entry.count} événement${entry.count > 1 ? 's' : ''}` }));
+  const average = daily.length > 0 ? Math.round((metrics?.totalEvents ?? 0) / daily.length) : 0;
+
+  const columns: Column<AnalyticsEvent>[] = [
+    { key: 'type', header: 'Type', render: (row) => <span className="cell-strong mono">{row.type}</span> },
+    { key: 'environment', header: 'Environnement', render: (row) => <Badge tone={row.environment === 'live' ? 'green' : 'violet'}>{ENV_LABEL[row.environment]}</Badge> },
+    { key: 'projectId', header: 'Projet', render: (row) => <span className="mono">{row.projectId ? row.projectId.slice(0, 8) : '—'}</span> },
+    {
+      key: 'metadata',
+      header: 'Métadonnées',
+      render: (row) => {
+        const keys = Object.keys(row.metadata);
+        return <span className="muted">{keys.length === 0 ? '—' : `${keys.length} clé${keys.length > 1 ? 's' : ''}`}</span>;
+      },
+    },
+    { key: 'occurredAt', header: 'Date', align: 'right', render: (row) => new Date(row.occurredAt).toLocaleString('fr-FR') },
+  ];
 
   return (
     <>
-      <PageHeader title="Analyse" description="Signaux d'usage et performance." />
+      <PageHeader
+        title="Analyse"
+        description="Signaux d'usage réels — les environnements démo et live ne sont jamais mélangés."
+        actions={
+          <FilterChips
+            ariaLabel="Environnement analytics"
+            value={environment}
+            onChange={(value) => setEnvironment(value as AnalyticsEnvironment)}
+            options={[
+              { value: 'demo', label: 'Démo' },
+              { value: 'live', label: 'Live' },
+            ]}
+          />
+        }
+      />
+
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
 
       <div className="stat-grid">
-        <StatCard label="Requêtes · 24 h" value="58,2 k" delta="+12 %" hint="vs la veille" icon="zap" tone="blue" />
-        <StatCard label="Latence p95" value="182 ms" delta="-8 %" hint="objectif : 250 ms max" icon="clock" tone="cyan" />
-        <StatCard label="Taux d'erreur" value="0,42 %" delta="+0,05" hint="1 incident mineur" icon="alert" tone="violet" />
-        <StatCard label="Utilisateurs actifs" value="1 284" delta="+6 %" hint="7 derniers jours" icon="chart" tone="green" />
+        <StatCard
+          label={`Événements · ${days} j`}
+          value={String(metrics?.totalEvents ?? 0)}
+          hint={`environnement ${ENV_LABEL[environment].toLowerCase()}`}
+          icon="chart"
+          tone="blue"
+        />
+        <StatCard label="Moyenne / jour" value={String(average)} hint="sur la période" icon="zap" tone="cyan" />
+        <StatCard label="Types actifs" value={String(metrics?.byType.length ?? 0)} hint="types distincts" icon="layers" tone="violet" />
+        <StatCard label="Événements listés" value={String(total)} hint="total pagination" icon="search-doc" tone="green" />
       </div>
 
       <Card
-        title="Requêtes API"
-        subtitle="Milliers de requêtes par jour"
+        title="Événements par jour"
+        subtitle={`Analytics ${ENV_LABEL[environment]} — événements réels enregistrés`}
         actions={
           <FilterChips
             ariaLabel="Période du graphique"
             value={range}
-            onChange={setRange}
+            onChange={(value) => setRange(value === '30' ? '30' : '7')}
             options={[
-              { value: '7j', label: '7 j' },
-              { value: '14j', label: '14 j' },
+              { value: '7', label: '7 j' },
+              { value: '30', label: '30 j' },
             ]}
           />
         }
       >
-        <AreaChart
-          data={data}
-          labels={labels}
-          tone="blue"
-          unit=" k"
-          ariaLabel={`Requêtes API quotidiennes sur ${days} jours`}
-        />
+        {daily.length === 0 ? (
+          <EmptyState icon="chart" title="Aucune donnée analytics" hint="Aucun événement enregistré sur la période pour cet environnement." />
+        ) : (
+          <AreaChart data={daily.map((entry) => entry.count)} labels={labels} tone="blue" ariaLabel={`Événements analytics quotidiens sur ${days} jours (environnement ${ENV_LABEL[environment]})`} />
+        )}
       </Card>
 
       <div className="split-2">
-        <Card title="Latence par module" subtitle="p95 en millisecondes">
-          <BarChart
-            items={LATENCY_MODULES}
-            tone="cyan"
-            ariaLabel="Latence p95 par module : api 120 ms, workers 210 ms, postgres 45 ms, redis 8 ms, ia 340 ms"
-          />
+        <Card title="Répartition par type" subtitle="Top types d'événements">
+          {topTypes.length === 0 ? (
+            <EmptyState icon="layers" title="Aucun type" hint="Les événements enregistrés apparaîtront ici." />
+          ) : (
+            <BarChart items={topTypes} tone="violet" ariaLabel="Nombre d'événements par type" />
+          )}
         </Card>
 
-        <Card title="Répartition des erreurs" subtitle="Part de chaque cause sur 24 h">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {ERROR_BREAKDOWN.map((item) => (
-              <ProgressBar
-                key={item.label}
-                label={item.label}
-                value={item.value}
-                tone={item.label === 'Timeouts' ? 'red' : item.label === 'Validation' ? 'amber' : 'blue'}
-                size="sm"
-              />
-            ))}
-            <p className="muted" style={{ fontSize: 12.5 }}>
-              Les timeouts concernent surtout le module IA en heure de pointe — voir les recommandations
-              de la page <strong>Amélioration</strong>.
-            </p>
-          </div>
+        <Card title="Derniers événements" subtitle={`Page ${page} / ${totalPages}`}>
+          {events.length === 0 ? (
+            <EmptyState icon="search-doc" title="Aucun événement" hint="Enregistrez des événements via l'API POST /v1/analytics/events." />
+          ) : (
+            <>
+              <DataTable columns={columns} rows={events} rowKey={(row) => row.id} caption="Derniers événements analytics" />
+              <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                  Précédent
+                </Button>
+                <Button variant="ghost" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                  Suivant
+                </Button>
+              </div>
+            </>
+          )}
         </Card>
       </div>
     </>

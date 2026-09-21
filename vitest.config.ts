@@ -24,6 +24,7 @@ export default defineConfig({
       ),
       '@nexus/api': fileURLToPath(new URL('./apps/api/src/app.ts', import.meta.url)),
       '@nexus/agents': fileURLToPath(new URL('./services/agents/src/index.ts', import.meta.url)),
+      '@nexus/sandbox': fileURLToPath(new URL('./services/sandbox/src/index.ts', import.meta.url)),
     },
   },
 });

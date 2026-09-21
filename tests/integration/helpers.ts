@@ -17,6 +17,13 @@ export function makeEnv(overrides: Partial<Env> = {}): Env {
     SESSION_TTL_HOURS: 72,
     RATE_LIMIT_MAX: 1000,
     AUTH_RATE_LIMIT_MAX: 1000,
+    AI_BASE_URL: 'http://127.0.0.1:8080',
+    AI_MODEL: 'local',
+    AI_API_KEY: undefined,
+    AI_TIMEOUT_MS: 30_000,
+    QUEUE_DRIVER: 'memory',
+    NEXUS_ALLOW_UNSAFE_LOCAL: '0',
+    PAY_WEBHOOK_SECRET: 'test-pay-webhook-secret-32chars!',
     ...overrides,
   };
 }

@@ -280,3 +280,207 @@ export const projectAudits = pgTable(
   },
   (table) => [index('project_audits_project_idx').on(table.projectId)],
 );
+
+/* ---------------------- Déploiements (Prompt 19) ---------------------- */
+
+export const deploymentStatusEnum = pgEnum('deployment_status', [
+  'pending',
+  'running',
+  'success',
+  'failed',
+  'cancelled',
+]);
+
+export const deploymentStageNameEnum = pgEnum('deployment_stage_name', [
+  'build',
+  'test',
+  'security',
+  'staging',
+  'production',
+]);
+
+/** Déploiement d'un projet — pipeline BUILD → TEST → SECURITY → STAGING → PRODUCTION. */
+export const deployments = pgTable(
+  'deployments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    environment: text('environment').notNull(), // staging | production
+    status: deploymentStatusEnum('status').notNull().default('pending'),
+    /** Confirmation explicite requise pour débloquer l'étape PRODUCTION. */
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('deployments_project_idx').on(table.projectId)],
+);
+
+/** Étape de pipeline : statut, début, fin, logs, erreur. */
+export const deploymentStages = pgTable(
+  'deployment_stages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    deploymentId: uuid('deployment_id')
+      .notNull()
+      .references(() => deployments.id, { onDelete: 'cascade' }),
+    name: deploymentStageNameEnum('name').notNull(),
+    status: deploymentStatusEnum('status').notNull().default('pending'),
+    logs: jsonb('logs').notNull().default([]),
+    error: text('error'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+  },
+  (table) => [uniqueIndex('deployment_stages_unique').on(table.deploymentId, table.name)],
+);
+
+/* ------------------------ Analytics (Prompt 20) ----------------------- */
+
+/** Environnements strictement séparés : DEMO et LIVE ne sont JAMAIS mélangés. */
+export const analyticsEnvEnum = pgEnum('analytics_env', ['demo', 'live']);
+
+export const analyticsEvents = pgTable(
+  'analytics_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    environment: analyticsEnvEnum('environment').notNull(),
+    metadata: jsonb('metadata').notNull().default({}),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('analytics_events_org_env_idx').on(table.organizationId, table.environment),
+    index('analytics_events_org_type_idx').on(table.organizationId, table.type),
+    index('analytics_events_occurred_idx').on(table.occurredAt),
+  ],
+);
+
+/* ------------------------- NEXUS Pay (Prompt 21) ---------------------- */
+
+export const transactionStatusEnum = pgEnum('transaction_status', [
+  'pending',
+  'processing',
+  'succeeded',
+  'failed',
+  'refunded',
+]);
+
+export const ledgerEntryTypeEnum = pgEnum('ledger_entry_type', [
+  'charge',
+  'fee',
+  'net',
+  'payout',
+]);
+
+export const payoutStatusEnum = pgEnum('payout_status', [
+  'pending',
+  'processing',
+  'paid',
+  'failed',
+]);
+
+/** Compte marchand, un par organisation. */
+export const merchants = pgTable(
+  'merchants',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    displayName: text('display_name').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('merchants_org_unique').on(table.organizationId)],
+);
+
+/** Registre des providers — `configured` reste false tant qu'aucune
+ * intégration officielle n'est réellement branchée. */
+export const paymentProviders = pgTable(
+  'payment_providers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    code: text('code').notNull(),
+    displayName: text('display_name').notNull(),
+    configured: boolean('configured').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('payment_providers_code_unique').on(table.code)],
+);
+
+/** Transaction — montants entiers (FCFA, aucune décimale), fee 350 bps
+ * calculé côté serveur. JAMAIS de PAN/CVV : checkout hébergé tokenisé. */
+export const transactions = pgTable(
+  'transactions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    merchantId: uuid('merchant_id')
+      .notNull()
+      .references(() => merchants.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    providerCode: text('provider_code').notNull(),
+    amount: integer('amount').notNull(),
+    feeAmount: integer('fee_amount').notNull(),
+    netAmount: integer('net_amount').notNull(),
+    currency: text('currency').notNull().default('XOF'),
+    status: transactionStatusEnum('status').notNull().default('pending'),
+    /** Clé d'idempotence fournie par l'appelant. */
+    idempotencyKey: text('idempotency_key').notNull(),
+    /** Jeton de checkout hébergé — aucune donnée de carte. */
+    checkoutToken: text('checkout_token').notNull(),
+    providerReference: text('provider_reference'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('transactions_idempotency_unique').on(table.organizationId, table.idempotencyKey),
+    index('transactions_merchant_idx').on(table.merchantId),
+    index('transactions_status_idx').on(table.status),
+  ],
+);
+
+/** Grand livre en partie double : SUM(debit) = SUM(credit) toujours. */
+export const ledgerEntries = pgTable(
+  'ledger_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    transactionId: uuid('transaction_id').references(() => transactions.id, { onDelete: 'cascade' }),
+    payoutId: uuid('payout_id'),
+    entryType: ledgerEntryTypeEnum('entry_type').notNull(),
+    account: text('account').notNull(),
+    debit: integer('debit').notNull().default(0),
+    credit: integer('credit').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('ledger_transaction_idx').on(table.transactionId),
+    index('ledger_account_idx').on(table.account),
+  ],
+);
+
+/** Versements vers un compte marchand (destination tokenisée). */
+export const payouts = pgTable(
+  'payouts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    merchantId: uuid('merchant_id')
+      .notNull()
+      .references(() => merchants.id, { onDelete: 'cascade' }),
+    amount: integer('amount').notNull(),
+    currency: text('currency').notNull().default('XOF'),
+    status: payoutStatusEnum('status').notNull().default('pending'),
+    /** Référence de destination tokenisée — jamais de donnée bancaire brute. */
+    destinationToken: text('destination_token').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (table) => [index('payouts_merchant_idx').on(table.merchantId)],
+);

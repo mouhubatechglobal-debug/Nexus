@@ -158,6 +158,80 @@ export interface DesignVersion {
   createdAt: string;
 }
 
+/* -------------------- Plateforme (jobs, deploy, analytics, pay) ------------------- */
+
+export type DeploymentStageName = 'build' | 'test' | 'security' | 'staging' | 'production';
+export type DeploymentStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelled';
+
+export interface DeploymentStage {
+  name: DeploymentStageName;
+  status: DeploymentStatus;
+  logs: { at: string; message: string }[];
+  error: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface Deployment {
+  id: string;
+  projectId: string;
+  environment: 'staging' | 'production';
+  status: DeploymentStatus;
+  confirmedAt: string | null;
+  stages: DeploymentStage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AnalyticsEnvironment = 'demo' | 'live';
+
+export interface AnalyticsEvent {
+  id: string;
+  organizationId: string;
+  projectId: string | null;
+  type: string;
+  environment: AnalyticsEnvironment;
+  metadata: Record<string, unknown>;
+  occurredAt: string;
+}
+
+export interface AnalyticsMetrics {
+  environment: AnalyticsEnvironment;
+  totalEvents: number;
+  byType: { type: string; count: number }[];
+  daily: { day: string; count: number }[];
+}
+
+export interface PayAdapter {
+  code: string;
+  displayName: string;
+  kind: 'mobile-money' | 'card';
+  configured: boolean;
+}
+
+export interface PayTransaction {
+  id: string;
+  organizationId: string;
+  providerCode: string;
+  amount: number;
+  feeAmount: number;
+  netAmount: number;
+  currency: string;
+  status: 'pending' | 'processing' | 'succeeded' | 'failed' | 'refunded';
+  checkoutUrl: string;
+  providerReference: string | null;
+  createdAt: string;
+}
+
+export interface PayPayout {
+  id: string;
+  merchantId: string;
+  amount: number;
+  currency: string;
+  status: 'pending' | 'processing' | 'paid' | 'failed';
+  createdAt: string;
+}
+
 /* ------------------------------- Client ------------------------------- */
 
 export const api = {
@@ -226,6 +300,42 @@ export const api = {
     request<{ data: AuditReport[] }>(`/v1/projects/${projectId}/audits`).then((r) => r.data),
   auditsRun: (projectId: string) =>
     request<AuditReport>(`/v1/projects/${projectId}/audits`, { method: 'POST' }),
+
+  // Jobs (queue interne — digest)
+  jobsDigest: () => request<{ jobId: string; driver: string }>('/v1/jobs/digest', { method: 'POST' }),
+  jobStatus: (jobId: string) =>
+    request<{ id: string; name: string; status: string; progress: number; attempts: number; result: unknown; error: string | null }>(`/v1/jobs/${jobId}`),
+
+  // Deployments — pipeline réel, production sur action explicite uniquement
+  deploymentsList: (projectId: string) =>
+    request<{ data: Deployment[] }>(`/v1/projects/${projectId}/deployments`).then((r) => r.data),
+  deploymentCreate: (projectId: string, environment: 'staging' | 'production') =>
+    request<Deployment>(`/v1/projects/${projectId}/deployments`, { method: 'POST', ...body({ environment }) }),
+  deploymentPromote: (projectId: string, deploymentId: string) =>
+    request<Deployment>(`/v1/projects/${projectId}/deployments/${deploymentId}/promote`, { method: 'POST', ...body({ confirm: true }) }),
+  deploymentCancel: (projectId: string, deploymentId: string) =>
+    request<Deployment>(`/v1/projects/${projectId}/deployments/${deploymentId}/cancel`, { method: 'POST' }),
+
+  // Analytics — DEMO et LIVE jamais mélangés
+  analyticsEvents: (query: { organizationId: string; environment: AnalyticsEnvironment; projectId?: string; type?: string; page?: number; limit?: number }) => {
+    const search = new URLSearchParams({ organizationId: query.organizationId, environment: query.environment });
+    if (query.projectId) search.set('projectId', query.projectId);
+    if (query.type) search.set('type', query.type);
+    if (query.page) search.set('page', String(query.page));
+    if (query.limit) search.set('limit', String(query.limit));
+    return request<Paginated<AnalyticsEvent>>(`/v1/analytics/events?${search}`);
+  },
+  analyticsMetrics: (organizationId: string, environment: AnalyticsEnvironment, days = 7) =>
+    request<AnalyticsMetrics>(`/v1/analytics/metrics?organizationId=${organizationId}&environment=${environment}&days=${days}`),
+
+  // NEXUS Pay — adaptateurs abstraits, commission serveur 350 bps
+  payAdapters: () => request<{ data: PayAdapter[] }>('/v1/pay/adapters').then((r) => r.data),
+  payTransactions: (page = 1, limit = 10) =>
+    request<Paginated<PayTransaction>>(`/v1/pay/transactions?page=${page}&limit=${limit}`),
+  payCreateTransaction: (input: { providerCode: string; amount: number; idempotencyKey: string }) =>
+    request<{ transaction: PayTransaction; idempotentReplay: boolean }>('/v1/pay/transactions', { method: 'POST', ...body(input) }),
+  payCreatePayout: (input: { amount: number; destinationToken: string }) =>
+    request<PayPayout>('/v1/pay/payouts', { method: 'POST', ...body(input) }),
 };
 
 /** Sonde de santé (inchangée — Result typé). */

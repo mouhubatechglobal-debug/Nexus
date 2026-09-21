@@ -56,6 +56,18 @@ vi.mock('../../apps/web/src/lib/api', async (importOriginal) => {
       labCreate: vi.fn(),
       auditsList: vi.fn().mockResolvedValue([]),
       auditsRun: vi.fn(),
+      jobsDigest: vi.fn(),
+      jobStatus: vi.fn(),
+      deploymentsList: vi.fn().mockResolvedValue([]),
+      deploymentCreate: vi.fn(),
+      deploymentPromote: vi.fn(),
+      deploymentCancel: vi.fn(),
+      analyticsEvents: vi.fn().mockResolvedValue({ data: [], page: 1, limit: 10, total: 0, totalPages: 1 }),
+      analyticsMetrics: vi.fn().mockResolvedValue({ environment: 'demo', totalEvents: 0, byType: [], daily: [] }),
+      payAdapters: vi.fn().mockResolvedValue([]),
+      payTransactions: vi.fn().mockResolvedValue({ data: [], page: 1, limit: 8, total: 0, totalPages: 1 }),
+      payCreateTransaction: vi.fn(),
+      payCreatePayout: vi.fn(),
     },
   };
 });

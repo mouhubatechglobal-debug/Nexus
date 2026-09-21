@@ -180,7 +180,7 @@ export class AgentOrchestrator {
     const record = (action: AgentAction): void => {
       actions.push(action);
     };
-    const guarded = (permission: AgentPermission, detail: string, operation: () => Promise<unknown>): Promise<unknown> => {
+    const guarded = <T>(permission: AgentPermission, detail: string, operation: () => Promise<T>): Promise<T> => {
       requirePermission(permission);
       record({ permission, allowed: true, detail });
       return operation();

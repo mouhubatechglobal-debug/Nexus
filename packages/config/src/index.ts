@@ -53,6 +53,26 @@ export const envSchema = z.object({
   AI_API_KEY: z.string().optional(),
   /** Délai maximal d'une requête IA, en millisecondes */
   AI_TIMEOUT_MS: z.coerce.number().int().min(500).max(300_000).default(30_000),
+
+  /**
+   * Driver de files : « bullmq » (Redis, production — exige REDIS_URL
+   * joignable, sinon échec rapide honnête) ou « memory » (même contrat,
+   * sans serveur — défaut hors production, non persistant).
+   */
+  QUEUE_DRIVER: z.enum(['bullmq', 'memory']).default('memory'),
+
+  /**
+   * Sandbox : JAMAIS d'exécution de code utilisateur non fiable dans le
+   * processus principal. Ce drapeau ne doit jamais être activé hors
+   * environnement local contrôlé.
+   */
+  NEXUS_ALLOW_UNSAFE_LOCAL: z.enum(['0', '1']).default('0'),
+
+  /**
+   * Secret de signature des webhooks de paiement (HMAC-SHA256).
+   * Défaut réservé au développement — définir une valeur forte en production.
+   */
+  PAY_WEBHOOK_SECRET: z.string().min(16).default('nexus-dev-pay-webhook-secret'),
 });
 
 export type Env = z.infer<typeof envSchema>;

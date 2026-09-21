@@ -21,6 +21,14 @@ import {
   createProjectService,
   createProviderFromConfig,
 } from './services/index.js';
+import { createJobService } from './services/jobService.js';
+import { createDeployService } from './services/deployService.js';
+import { createAnalyticsService } from './services/analyticsService.js';
+import { createPayService } from './services/payService.js';
+import { jobRoutes } from './routes/v1/jobs.js';
+import { deploymentRoutes } from './routes/v1/deployments.js';
+import { analyticsRoutes } from './routes/v1/analytics.js';
+import { payRoutes } from './routes/v1/pay.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/v1/auth.js';
 import { orgRoutes } from './routes/v1/organizations.js';
@@ -142,6 +150,34 @@ export async function buildApp(options: BuildAppOptions) {
   await app.register(workspaceRoutes, { prefix: '/v1', authService, db: db.db });
   await app.register(aiRoutes, { prefix: '/v1/ai', authService, provider: aiProvider });
 
+  // --- Jobs (Queue → Redis|memory → Worker → Result) ---
+  const jobService = createJobService(config, db.db);
+  await app.register(jobRoutes, { prefix: '/v1/jobs', authService, jobService, db: db.db });
+
+  // --- Déploiements (pipeline contrôlé, production sur action explicite) ---
+  await app.register(deploymentRoutes, {
+    prefix: '/v1/projects/:projectId/deployments',
+    authService,
+    deployService: createDeployService(db.db),
+    db: db.db,
+  });
+
+  // --- Analytics (DEMO/LIVE strictement séparés) ---
+  await app.register(analyticsRoutes, {
+    prefix: '/v1/analytics',
+    authService,
+    analyticsService: createAnalyticsService(db.db),
+    db: db.db,
+  });
+
+  // --- NEXUS Pay (adapters abstraits, fee serveur, ledger, webhooks) ---
+  await app.register(payRoutes, {
+    prefix: '/v1/pay',
+    authService,
+    payService: createPayService(config, db.db),
+    db: db.db,
+  });
+
   return {
     app,
     db,
@@ -149,6 +185,7 @@ export async function buildApp(options: BuildAppOptions) {
     orgService,
     projectService,
     aiProvider,
+    jobService,
     async close() {
       redis.disconnect();
       await app.close();
