@@ -1,6 +1,6 @@
 {
   "name": "@nexus/api",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -13,6 +13,9 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",
+    "@fastify/cookie": "^11.0.0",
+    "@fastify/rate-limit": "^10.2.0",
+    "@node-rs/argon2": "^2.0.0",
     "@nexus/config": "*",
     "@nexus/contracts": "*",
     "@nexus/core": "*",

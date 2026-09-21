@@ -1,9 +1,10 @@
-import { loadEnv } from '@nexus/config';
+import { loadDotEnv, loadEnv } from '@nexus/config';
 import { buildApp } from './app.js';
 
 async function main(): Promise<void> {
+  loadDotEnv();
   const env = loadEnv();
-  const handle = buildApp({ env });
+  const handle = await buildApp({ env });
 
   const shutdown = async (signal: string) => {
     handle.app.log.info({ signal }, 'Arrêt de l’API…');
@@ -15,7 +16,9 @@ async function main(): Promise<void> {
 
   // 0.0.0.0 : écoute accessible depuis l'extérieur du conteneur/sandbox.
   await handle.app.listen({ port: env.PORT, host: '0.0.0.0' });
-  handle.app.log.info(`API NEXUS prête sur http://0.0.0.0:${env.PORT}`);
+  handle.app.log.info(
+    `API NEXUS prête sur http://0.0.0.0:${env.PORT} (db: ${env.DB_DRIVER})`,
+  );
 }
 
 main().catch((error) => {
