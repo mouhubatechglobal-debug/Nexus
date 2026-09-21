@@ -18,7 +18,7 @@
     "dev:api": "npm run dev -w @nexus/api",
     "dev:web": "npm run dev -w @nexus/web",
     "build": "npm run build:packages && npm run build -w @nexus/api -w @nexus/web",
-    "build:packages": "npm run build -w @nexus/config -w @nexus/contracts -w @nexus/core -w @nexus/db -w @nexus/observability -w @nexus/workers",
+    "build:packages": "npm run build -w @nexus/config -w @nexus/contracts -w @nexus/core -w @nexus/db -w @nexus/observability -w @nexus/workers -w @nexus/agents",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "test:watch": "vitest",

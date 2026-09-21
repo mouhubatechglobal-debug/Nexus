@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Env } from '@nexus/config';
 
 /** Environnement de test complet (aucune valeur sensible, driver embarqué). */

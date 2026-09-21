@@ -1,14 +1,19 @@
 /**
  * Schéma Drizzle — point unique de définition des tables PostgreSQL.
  *
- * Modèles de base (Prompt 05) : users, sessions, organizations,
- * organization_members, projects.
+ * Modèles : users, sessions, organizations, organization_members,
+ * projects (Prompt 05) + brain_entries, project_files, file_versions,
+ * studio_designs, lab_entries, project_audits (Prompts 07-16).
  * Conventions : UUID (gen_random_uuid), timestamps timestamptz,
  * clés étrangères explicites avec politique de suppression,
- * contraintes d'unicité et index d'accès.
+ * contraintes d'unicité et index d'accès. Toutes les ressources
+ * métier sont rattachées à un projet → organisation (isolation).
  */
 import {
+  boolean,
   index,
+  integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -128,4 +133,150 @@ export const projects = pgTable(
     index('projects_organization_idx').on(table.organizationId),
     index('projects_status_idx').on(table.status),
   ],
+);
+
+/** Catégories de la mémoire projet (Brain). */
+export const brainKindEnum = pgEnum('brain_kind', [
+  'context',
+  'objective',
+  'constraint',
+  'decision',
+  'architecture',
+  'preference',
+  'knowledge',
+  'info',
+]);
+
+/** Types d'éléments NEXUS Lab. */
+export const labKindEnum = pgEnum('lab_kind', [
+  'experiment',
+  'hypothesis',
+  'question',
+  'result',
+  'source',
+  'note',
+  'conclusion',
+]);
+
+/** Mémoire structurée d'un projet (NEXUS Brain). */
+export const brainEntries = pgTable(
+  'brain_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    kind: brainKindEnum('kind').notNull(),
+    title: text('title').notNull(),
+    content: text('content').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('brain_entries_project_idx').on(table.projectId),
+    index('brain_entries_project_kind_idx').on(table.projectId, table.kind),
+  ],
+);
+
+/**
+ * Filesystem virtuel d'un projet (NEXUS Forge). Chemins relatifs
+ * normalisés, uniques par projet ; le contenu est versionné dans
+ * `file_versions` — jamais d'accès au disque hôte.
+ */
+export const projectFiles = pgTable(
+  'project_files',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    name: text('name').notNull(),
+    isDirectory: boolean('is_directory').notNull().default(false),
+    mime: text('mime').notNull().default('text/plain'),
+    size: integer('size').notNull().default(0),
+    content: text('content'),
+    version: integer('version').notNull().default(1),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('project_files_project_path_unique').on(table.projectId, table.path),
+    index('project_files_project_idx').on(table.projectId),
+  ],
+);
+
+/** Historique des versions d'un fichier. */
+export const fileVersions = pgTable(
+  'file_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    fileId: uuid('file_id')
+      .notNull()
+      .references(() => projectFiles.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    content: text('content').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('file_versions_file_version_unique').on(table.fileId, table.version)],
+);
+
+/** Document de conception NEXUS Studio (JSON versionnable). */
+export const studioDesigns = pgTable(
+  'studio_designs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    data: jsonb('data').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('studio_designs_project_version_unique').on(table.projectId, table.version)],
+);
+
+/** Éléments NEXUS Lab liés à un projet. */
+export const labEntries = pgTable(
+  'lab_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    kind: labKindEnum('kind').notNull(),
+    title: text('title').notNull(),
+    content: text('content').notNull(),
+    sourceUrl: text('source_url'),
+    sourceLabel: text('source_label'),
+    /** Toujours `false` par défaut : une donnée non vérifiée est explicite. */
+    verified: boolean('verified').notNull().default(false),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('lab_entries_project_idx').on(table.projectId),
+    index('lab_entries_project_kind_idx').on(table.projectId, table.kind),
+  ],
+);
+
+/** Rapports d'audit NEXUS Doctor (historisé). */
+export const projectAudits = pgTable(
+  'project_audits',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    summary: jsonb('summary').notNull(),
+    results: jsonb('results').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('project_audits_project_idx').on(table.projectId)],
 );

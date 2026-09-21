@@ -1,7 +1,7 @@
 import type { ErrorDetail, ErrorCode } from '@nexus/contracts';
 import { ERROR_CODES } from '@nexus/contracts';
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { ZodType } from 'zod';
+import type { ZodTypeAny, output } from 'zod';
 
 /**
  * Système d'erreurs unifié : TOUTE erreur sort de l'API au format
@@ -23,7 +23,7 @@ export class AppError extends Error {
 }
 
 /** Valide une charge utile Zod ou lève une AppError 400 normalisée. */
-export function parseBody<T>(schema: ZodType<T>, data: unknown): T {
+export function parseBody<S extends ZodTypeAny>(schema: S, data: unknown): output<S> {
   const result = schema.safeParse(data);
   if (!result.success) {
     throw new AppError(
@@ -36,7 +36,7 @@ export function parseBody<T>(schema: ZodType<T>, data: unknown): T {
       })),
     );
   }
-  return result.data;
+  return result.data as output<S>;
 }
 
 function sendError(request: FastifyRequest, reply: FastifyReply, error: AppError): FastifyReply {

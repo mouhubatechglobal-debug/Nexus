@@ -42,6 +42,17 @@ export const envSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
   /** Limite renforcée des routes d'authentification, par IP et par minute */
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+
+  /**
+   * Provider IA OpenAI-compatible. Le serveur local par défaut
+   * (ex. llama.cpp server) est utilisé en développement.
+   */
+  AI_BASE_URL: z.string().default('http://127.0.0.1:8080'),
+  AI_MODEL: z.string().default('local'),
+  /** Clé API — JAMAIS codée en dur, injectée par l'environnement. */
+  AI_API_KEY: z.string().optional(),
+  /** Délai maximal d'une requête IA, en millisecondes */
+  AI_TIMEOUT_MS: z.coerce.number().int().min(500).max(300_000).default(30_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

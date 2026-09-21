@@ -1,122 +1,178 @@
-import { useMemo, useState } from 'react';
-import { RESEARCH, SYNTHESIS, type ResearchSource } from '../data/mock';
+import { useCallback, useEffect, useState } from 'react';
+import { ApiError, api, type LabEntry, type LabKind, type Project } from '../lib/api';
+import { useAuth } from '../lib/auth';
+import { Badge, Button, Card, EmptyState, FilterChips, PageHeader, SelectField, TextField } from '../components/ui';
 import { Icon } from '../components/Icon';
-import { Badge, Button, Card, FilterChips, PageHeader, ProgressBar, SearchInput, StatCard } from '../components/ui';
 
-const TOPIC_TONE: Record<ResearchSource['topic'], 'blue' | 'violet' | 'cyan'> = {
-  marché: 'blue',
-  technique: 'cyan',
-  concurrence: 'violet',
+const KINDS: { value: LabKind; label: string }[] = [
+  { value: 'hypothesis', label: 'Hypothèse' },
+  { value: 'experiment', label: 'Expérience' },
+  { value: 'question', label: 'Question' },
+  { value: 'result', label: 'Résultat' },
+  { value: 'source', label: 'Source' },
+  { value: 'note', label: 'Note' },
+  { value: 'conclusion', label: 'Conclusion' },
+];
+
+const KIND_TONE: Record<LabKind, 'blue' | 'violet' | 'cyan' | 'green' | 'amber' | 'neutral'> = {
+  experiment: 'cyan',
+  hypothesis: 'violet',
+  question: 'blue',
+  result: 'green',
+  source: 'amber',
+  note: 'neutral',
+  conclusion: 'green',
 };
 
+/**
+ * Research — connecté à NEXUS Lab (données réelles du projet).
+ * Une donnée non vérifiée est TOUJOURS affichée comme telle.
+ */
 export function ResearchPage() {
-  const [query, setQuery] = useState('');
-  const [topic, setTopic] = useState('tous');
-  const [synthesis, setSynthesis] = useState(SYNTHESIS);
+  const { organization } = useAuth();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState<string | null>(() => window.localStorage.getItem('nexus.activeProject'));
+  const [entries, setEntries] = useState<LabEntry[]>([]);
+  const [filter, setFilter] = useState('tous');
+  const [kind, setKind] = useState<LabKind>('hypothesis');
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return RESEARCH.filter((source) => {
-      const matchTopic = topic === 'tous' || source.topic === topic;
-      const matchQuery = q === '' || source.title.toLowerCase().includes(q) || source.source.toLowerCase().includes(q);
-      return matchTopic && matchQuery;
-    }).sort((a, b) => b.relevance - a.relevance);
-  }, [query, topic]);
+  useEffect(() => {
+    if (!organization) return;
+    api.projects(organization.id, { limit: 100 })
+      .then((page) => {
+        setProjects(page.data);
+        setProjectId((current) => (current && page.data.some((p) => p.id === current) ? current : (page.data[0]?.id ?? null)));
+      })
+      .catch(() => setProjects([]));
+  }, [organization]);
 
-  const regenerate = () => {
-    setSynthesis((previous) => {
-      if (previous.length === 0) return previous;
-      return [previous[previous.length - 1]!, ...previous.slice(0, -1)];
-    });
+  const load = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      setEntries(await api.labList(projectId));
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Chargement impossible');
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const create = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!projectId) return;
+    try {
+      await api.labCreate(projectId, {
+        kind,
+        title: title.trim(),
+        content: content.trim(),
+        sourceUrl: sourceUrl.trim() || undefined,
+      });
+      setTitle('');
+      setContent('');
+      setSourceUrl('');
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Ajout impossible');
+    }
   };
+
+  const filtered = filter === 'tous' ? entries : entries.filter((entry) => entry.kind === filter);
+  const counts = KINDS.map((k) => ({ value: k.value, label: k.label, count: entries.filter((e) => e.kind === k.value).length }));
 
   return (
     <>
       <PageHeader
         title="Research"
-        description="Veille et synthèses assistées par IA."
-        actions={
-          <Button variant="outline" icon="search-doc">
-            Lancer une veille
-          </Button>
-        }
+        description="NEXUS Lab — hypothèses, expériences et sources de votre projet. Les données non vérifiées sont explicitement marquées."
       />
 
-      <div className="stat-grid">
-        <StatCard label="Sources analysées" value="128" delta="+9" hint="7 derniers jours" icon="search-doc" tone="cyan" />
-        <StatCard label="Rapports générés" value="9" delta="+2" hint="ce mois-ci" icon="file" tone="blue" />
-        <StatCard label="Tendances détectées" value="14" hint="dont 3 critiques" icon="chart" tone="violet" />
-      </div>
-
-      <div className="list-toolbar">
-        <SearchInput value={query} onChange={setQuery} label="Rechercher une source" placeholder="Titre ou source…" />
-        <FilterChips
-          ariaLabel="Filtrer par sujet"
-          value={topic}
-          onChange={setTopic}
-          options={[
-            { value: 'tous', label: 'Tous' },
-            { value: 'marché', label: 'Marché' },
-            { value: 'technique', label: 'Technique' },
-            { value: 'concurrence', label: 'Concurrence' },
-          ]}
-        />
-      </div>
+      {projects.length > 0 ? (
+        <div className="list-toolbar">
+          <div style={{ minWidth: 240 }}>
+            <SelectField
+              id="research-project"
+              ariaLabel="Projet actif"
+              value={projectId ?? ''}
+              onChange={(value) => setProjectId(value)}
+              options={projects.map((project) => ({ value: project.id, label: project.name }))}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <div className="split-2">
-        <Card title="Sources détectées" subtitle="Triées par pertinence">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {filtered.map((source) => (
-              <article key={source.id} style={{ display: 'flex', flexDirection: 'column', gap: 7, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <h3 style={{ fontSize: 14, fontWeight: 600 }}>{source.title}</h3>
-                    <p className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                      {source.source} · {source.date}
-                    </p>
-                  </div>
-                  <Badge tone={TOPIC_TONE[source.topic]}>{source.topic}</Badge>
-                </div>
-                <ProgressBar value={source.relevance} label="Pertinence" tone={source.relevance >= 85 ? 'cyan' : 'blue'} size="sm" />
-              </article>
-            ))}
-            {filtered.length === 0 ? (
-              <p className="muted" style={{ padding: '12px 0' }}>
-                Aucune source ne correspond à cette recherche.
-              </p>
+        <Card title="Ajouter une entrée" subtitle="Une source doit référencer une URL vérifiable">
+          <form className="form-grid" onSubmit={create}>
+            <SelectField id="lab-kind" label="Type" value={kind} onChange={(value) => setKind(value as LabKind)} options={KINDS} />
+            <TextField id="lab-title" label="Titre" required value={title} onChange={setTitle} placeholder="Ex. Les PME adoptent-elles les OS créatifs ?" />
+            <div className="field">
+              <label className="field-label" htmlFor="lab-content">Contenu</label>
+              <textarea id="lab-content" className="input" rows={4} required value={content} onChange={(event) => setContent(event.target.value)} />
+            </div>
+            <TextField
+              id="lab-source"
+              label={`Source URL${kind === 'source' ? ' (obligatoire)' : ' (optionnel)'}`}
+              type="url"
+              value={sourceUrl}
+              onChange={setSourceUrl}
+              placeholder="https://…"
+              hint="Sans URL, l’entrée sera marquée « non vérifiée »."
+            />
+            <div className="form-actions">
+              <Button type="submit" icon="plus" disabled={title.trim().length < 2 || content.trim().length < 1 || !projectId}>
+                Enregistrer
+              </Button>
+            </div>
+            {error ? (
+              <p className="saved-note" style={{ color: 'var(--danger)' }} role="alert">{error}</p>
             ) : null}
-          </div>
+          </form>
         </Card>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
-          <Card
-            title="Synthèse de l'assistant"
-            subtitle="Générée à partir des sources les plus pertinentes"
-            actions={
-              <Button variant="ghost" size="sm" icon="sparkles" onClick={regenerate}>
-                Régénérer
-              </Button>
-            }
-          >
-            <ul style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
-              {synthesis.map((point) => (
-                <li key={point} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                  <span style={{ color: 'var(--cyan)', flexShrink: 0, marginTop: 2 }}>
-                    <Icon name="zap" size={14} />
-                  </span>
-                  <span style={{ fontSize: 13, color: 'var(--text-2)', overflowWrap: 'anywhere' }}>{point}</span>
-                </li>
-              ))}
-            </ul>
-          </Card>
+          <FilterChips
+            ariaLabel="Filtrer par type d’entrée"
+            value={filter}
+            onChange={setFilter}
+            options={[{ value: 'tous', label: 'Tous', count: entries.length }, ...counts]}
+          />
 
-          <Card title="Prochaine session" subtitle="Planification suggérée">
-            <p style={{ fontSize: 13, color: 'var(--text-2)' }}>
-              D'après le rythme actuel, la prochaine veille complète est recommandée{' '}
-              <strong style={{ color: 'var(--text-1)' }}>mardi prochain</strong>, en ciblant les signaux
-              « concurrence » restés sous le seuil de pertinence 70 %.
-            </p>
-          </Card>
+          {!projectId ? (
+            <Card><EmptyState icon="search-doc" title="Aucun projet" hint="Créez un projet pour utiliser NEXUS Lab." /></Card>
+          ) : filtered.length === 0 ? (
+            <Card><EmptyState icon="search-doc" title="Aucune entrée" hint="Ajoutez votre première hypothèse ou source." /></Card>
+          ) : (
+            <div className="idea-list">
+              {filtered.map((entry) => (
+                <article key={entry.id} className="idea-card">
+                  <div className="idea-top">
+                    <h3 className="idea-title">{entry.title}</h3>
+                    <Badge tone={KIND_TONE[entry.kind]}>{entry.kind}</Badge>
+                  </div>
+                  <p className="idea-detail" style={{ whiteSpace: 'pre-wrap' }}>{entry.content}</p>
+                  <div className="idea-meta">
+                    {entry.sourceUrl ? (
+                      <a href={entry.sourceUrl} target="_blank" rel="noreferrer noopener" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
+                        <Icon name="arrow-right" size={13} />
+                        {entry.sourceLabel ?? 'Source'}
+                      </a>
+                    ) : null}
+                    {entry.verified ? (
+                      <Badge tone="green">vérifié</Badge>
+                    ) : (
+                      <Badge tone="amber">non vérifié</Badge>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </>

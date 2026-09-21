@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { healthResponseSchema, readyResponseSchema } from '@nexus/contracts';
 import { createEmbeddedDb, runMigrations, type DbHandle } from '@nexus/db';
@@ -9,7 +12,7 @@ describe('API NEXUS — sondes et erreurs normalisées', () => {
   let db: DbHandle;
 
   beforeAll(async () => {
-    db = await createEmbeddedDb();
+    db = await createEmbeddedDb({ dataDir: mkdtempSync(join(tmpdir(), "nexus-test-")) });
     await runMigrations(db);
     handle = await buildApp({ env: makeEnv(), db });
   });

@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createEmbeddedDb, runMigrations, type DbHandle } from '@nexus/db';
 import { buildApp, type AppHandle } from '@nexus/api';
@@ -8,7 +11,7 @@ describe('API NEXUS — protection contre les abus (rate limiting)', () => {
   let db: DbHandle;
 
   beforeAll(async () => {
-    db = await createEmbeddedDb();
+    db = await createEmbeddedDb({ dataDir: mkdtempSync(join(tmpdir(), "nexus-test-")) });
     await runMigrations(db);
     // Limite d'authentification volontairement très basse pour le test.
     handle = await buildApp({ env: makeEnv({ AUTH_RATE_LIMIT_MAX: 3 }), db });

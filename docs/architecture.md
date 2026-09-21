@@ -76,3 +76,22 @@ des sources directement (alias Vitest).
 Copier `.env.example` → `.env`. Toutes les valeurs ont des défauts de
 développement : rien n'est requis pour démarrer. PostgreSQL/Redis sont
 optionnels : `GET /health` les marque `down` le cas échéant.
+
+## Modules métier (Prompts 07-16)
+
+| Module | API | Rôle |
+| --- | --- | --- |
+| Multi-tenant | guards (`requireOrgAccess`, `requireProjectAccess`) | isolation anti-IDOR : MEMBER < ADMIN < OWNER, 404 sur org étrangère |
+| Projets | `/v1/projects` (CRUD, pagination, recherche) | réels, persistés, liés à une organisation |
+| NEXUS Brain | `/v1/projects/:id/brain` | mémoire structurée (contexte, objectifs, décisions…) |
+| Forge | `/v1/projects/:id/files` | filesystem virtuel versionné, chemins validés (anti-traversal) |
+| Studio | `/v1/projects/:id/studio` | document de conception JSON versionnable |
+| Lab | `/v1/projects/:id/lab` | expériences & sources — source = URL obligatoire, non-vérifié explicite |
+| Doctor | `/v1/projects/:id/audits` | audits PASS/WARN/FAIL/NOT_TESTED (honnêtes) |
+| IA | `/v1/ai/complete` | provider OpenAI-compatible, timeout, clé via env |
+| Agents | `services/agents` (`@nexus/agents`) | 7 agents à permissions fermées, aucun shell/secrets/fs global |
+
+Base de données : 11 tables (`users`, `sessions`, `organizations`,
+`organization_members`, `projects`, `brain_entries`, `project_files`,
+`file_versions`, `studio_designs`, `lab_entries`, `project_audits`),
+migrations Drizzle dans `packages/db/drizzle/`.

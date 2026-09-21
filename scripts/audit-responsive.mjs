@@ -13,7 +13,7 @@
  * Usage : node scripts/audit-responsive.mjs [--base http://localhost:4173]
  */
 import { chromium } from 'playwright';
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import chromiumPkg, { inflate } from '@sparticuz/chromium';
@@ -31,7 +31,6 @@ if (!existsSync(libPath)) {
 }
 process.env['LD_LIBRARY_PATH'] = libPath;
 process.env['FONTCONFIG_PATH'] = join(tmpdir(), 'fonts');
-void readdirSync; // readdirSync utilisé implicitement par l'extraction
 
 const args = process.argv.slice(2);
 const baseFlag = args.indexOf('--base');
@@ -69,6 +68,12 @@ for (const width of WIDTHS) {
     viewport: { width, height: width < 768 ? 820 : 1000 },
     deviceScaleFactor: 1,
   });
+  // Session par contexte : inscription via l'API (cookies du contexte).
+  await page.request
+    .post(`${BASE}/api/v1/auth/register`, {
+      data: { email: `audit-${Date.now()}-${width}@nexus.test`, password: 'MotDePasse2026' },
+    })
+    .catch(() => undefined);
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push({ width, text: message.text().slice(0, 300) });
   });

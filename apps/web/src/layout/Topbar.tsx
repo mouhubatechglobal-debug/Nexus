@@ -1,5 +1,6 @@
 import { Icon } from '../components/Icon';
 import { ApiPill } from '../components/ui';
+import { useAuth } from '../lib/auth';
 import type { RouteDefinition } from '../router';
 
 interface TopbarProps {
@@ -9,6 +10,12 @@ interface TopbarProps {
 }
 
 export function Topbar({ route, navOpen, onMenu }: TopbarProps) {
+  const { user, logout } = useAuth();
+  const initials = (user?.displayName ?? user?.email ?? 'U')
+    .split(/[\s@.]+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('');
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -41,9 +48,16 @@ export function Topbar({ route, navOpen, onMenu }: TopbarProps) {
           <Icon name="bell" size={18} />
           <span className="notif-dot" aria-hidden="true" />
         </button>
-        <span className="avatar avatar-sm" aria-hidden="true">
-          AM
+        <span className="avatar avatar-sm" title={user?.email} aria-hidden="true">
+          {initials}
         </span>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => void logout()}
+        >
+          Sortir
+        </button>
       </div>
     </header>
   );

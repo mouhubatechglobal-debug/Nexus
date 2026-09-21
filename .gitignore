@@ -25,3 +25,4 @@ reports/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+.nexus-data/

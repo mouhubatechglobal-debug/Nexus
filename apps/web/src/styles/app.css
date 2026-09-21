@@ -2266,3 +2266,39 @@ select.input {
     scroll-behavior: auto !important;
   }
 }
+
+/* ------------------------- Écran d'authentification ------------------- */
+
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+
+.auth-card {
+  width: min(100%, 420px);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.auth-card .sidebar-brand {
+  border-bottom: 1px solid var(--glass-border);
+  padding: 0 6px 14px;
+}
+
+/* Topbar sur très petits écrans : on libère l'espace (le titre de page
+   est déjà dans le contenu ; le logout reste accessible ≥ 600 px). */
+@media (max-width: 599px) {
+  .topbar-crumb-root,
+  .topbar-crumb-sep,
+  .logout-btn {
+    display: none;
+  }
+
+  .topbar {
+    gap: 8px;
+    padding: 0 10px;
+  }
+}

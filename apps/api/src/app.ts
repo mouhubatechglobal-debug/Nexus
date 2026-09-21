@@ -15,10 +15,18 @@ import Fastify from 'fastify';
 import { toConfig, type AppConfig } from './config/index.js';
 import { AppError, registerErrorHandlers } from './middleware/errors.js';
 import { ERROR_CODES } from '@nexus/contracts';
-import { createHealthService } from './services/healthService.js';
-import { createAuthService } from './services/authService.js';
+import {
+  createAuthService,
+  createOrgService,
+  createProjectService,
+  createProviderFromConfig,
+} from './services/index.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/v1/auth.js';
+import { orgRoutes } from './routes/v1/organizations.js';
+import { projectRoutes } from './routes/v1/projects.js';
+import { workspaceRoutes } from './routes/v1/workspace.js';
+import { aiRoutes } from './routes/v1/ai.js';
 
 export interface BuildAppOptions {
   env: Env;
@@ -28,15 +36,14 @@ export interface BuildAppOptions {
 
 /**
  * Construit l'application Fastify (sans écouter) :
- * - logs pino, identifiant de requête par appel, cookies masqués ;
- * - CORS strict (liste d'origins exacte, credentials activés) ;
- * - limitation de débit globale + renforcée sur l'authentification ;
- * - erreurs 100 % normalisées (middleware/errors) ;
- * - sondes /health (liveness) et /ready (readiness) ;
- * - authentification /v1/auth/* (Argon2id + sessions opaques).
- *
- * DB_DRIVER : « postgres » (pool paresseux, aucune connexion ouverte au
- * démarrage) ou « embedded » (PGlite + migrations automatiques).
+ * - logs pino, requestId par appel, cookies masqués ;
+ * - CORS strict, rate limiting global + renforcé sur /v1/auth ;
+ * - erreurs 100 % normalisées ;
+ * - sondes /health et /ready ;
+ * - authentification /v1/auth (Argon2id + sessions opaques) ;
+ * - multi-tenant /v1/organizations + /v1/projects (isolation anti-IDOR) ;
+ * - workspace projet : Brain, Forge (fichiers), Studio, Lab, Doctor ;
+ * - IA /v1/ai (provider OpenAI-compatible, timeout, clé via env).
  */
 export async function buildApp(options: BuildAppOptions) {
   const config: AppConfig = toConfig(options.env);
@@ -50,7 +57,6 @@ export async function buildApp(options: BuildAppOptions) {
       : createDb(config.DATABASE_URL, { max: 5 }));
 
   if (ownsDb && config.DB_DRIVER === 'embedded') {
-    // Instance jetable (démo/tests) : on s'assure que le schéma existe.
     await runMigrations(db);
   }
 
@@ -87,14 +93,27 @@ export async function buildApp(options: BuildAppOptions) {
     global: true,
     max: config.RATE_LIMIT_MAX,
     timeWindow: '1 minute',
-    // Les dépassements sortent au format d'erreur standard.
     errorResponseBuilder: () =>
       new AppError(429, ERROR_CODES.RATE_LIMITED, 'Trop de requêtes. Réessayez dans un instant.'),
   });
 
   registerErrorHandlers(app);
 
+  // --- Authentification & services ---
+  const authService = createAuthService({ db: db.db, config });
+  const orgService = createOrgService(db.db);
+  const projectService = createProjectService(db.db);
+
+  // --- Provider IA (clé via environnement uniquement) ---
+  const aiProvider = createProviderFromConfig({
+    baseUrl: config.AI_BASE_URL,
+    model: config.AI_MODEL,
+    apiKey: config.AI_API_KEY,
+    timeoutMs: config.AI_TIMEOUT_MS,
+  });
+
   // --- Sondes ---
+  const { createHealthService } = await import('./services/healthService.js');
   const healthService = createHealthService({
     checkDatabase: async () => {
       try {
@@ -116,18 +135,20 @@ export async function buildApp(options: BuildAppOptions) {
   });
   await app.register(healthRoutes, { service: healthService });
 
-  // --- Authentification ---
-  const authService = createAuthService({ db: db.db, config });
-  await app.register(authRoutes, {
-    prefix: '/v1/auth',
-    service: authService,
-    config,
-  });
+  // --- Routes v1 ---
+  await app.register(authRoutes, { prefix: '/v1/auth', service: authService, config });
+  await app.register(orgRoutes, { prefix: '/v1/organizations', authService, orgService });
+  await app.register(projectRoutes, { prefix: '/v1/projects', authService, projectService, db: db.db });
+  await app.register(workspaceRoutes, { prefix: '/v1', authService, db: db.db });
+  await app.register(aiRoutes, { prefix: '/v1/ai', authService, provider: aiProvider });
 
   return {
     app,
     db,
     authService,
+    orgService,
+    projectService,
+    aiProvider,
     async close() {
       redis.disconnect();
       await app.close();
@@ -138,5 +159,5 @@ export async function buildApp(options: BuildAppOptions) {
   };
 }
 
-/** Type d'une instance construite par `buildApp` (app + arrêt propre). */
+/** Type d'une instance construite par `buildApp`. */
 export type AppHandle = Awaited<ReturnType<typeof buildApp>>;

@@ -1,3 +1,5 @@
+import { mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { sql } from 'drizzle-orm';
 import pg from 'pg';
@@ -56,21 +58,34 @@ export function createDb(databaseUrl: string, options: DbOptions = {}): DbHandle
 
 export interface EmbeddedDbOptions {
   /**
-   * Dossier de données persistant (optionnel). Par défaut : mémoire,
-   * idéal pour les tests et la démonstration.
+   * Dossier de données. Par défaut : `.nexus-data/pglite` à la racine du
+   * dépôt — PERSISTANT (les données survivent aux redémarrages).
+   * Passer `:memory:` pour une base éphémère (tests).
    */
   dataDir?: string;
+}
+
+/** Dossier de données par défaut (persistant, hors Git). */
+export function defaultEmbeddedDataDir(): string {
+  return fileURLToPath(new URL('../../../.nexus-data/pglite', import.meta.url));
 }
 
 /**
  * Crée une instance PostgreSQL embarquée (PGlite, WASM) — utilisée quand
  * aucun serveur PostgreSQL n'est disponible (CI, sandbox, démo).
+ * Les données sont persistées sur disque par défaut : un projet créé
+ * reste présent après redémarrage du serveur.
  * Les migrations restent les fichiers SQL générés par drizzle-kit :
  * même schéma, mêmes contraintes que le driver standard.
  */
 export async function createEmbeddedDb(options: EmbeddedDbOptions = {}): Promise<DbHandle> {
   const { PGlite } = await import('@electric-sql/pglite');
-  const client = new PGlite(options.dataDir);
+  const dataDir = options.dataDir ?? defaultEmbeddedDataDir();
+  if (dataDir !== ':memory:') {
+    // PGlite exige que le dossier existe déjà (mkdir non récursif).
+    mkdirSync(dataDir, { recursive: true });
+  }
+  const client = new PGlite(dataDir);
   const embedded = (await import('drizzle-orm/pglite')).drizzle(client, { schema });
 
   const db = embedded as unknown as Database;

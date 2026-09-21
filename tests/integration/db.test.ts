@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
@@ -34,7 +37,7 @@ describe('@nexus/db — schéma, contraintes et migrations', () => {
   let db: DbHandle;
 
   beforeAll(async () => {
-    db = await createEmbeddedDb();
+    db = await createEmbeddedDb({ dataDir: mkdtempSync(join(tmpdir(), "nexus-test-")) });
     await runMigrations(db);
   });
 
