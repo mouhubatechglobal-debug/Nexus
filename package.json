@@ -22,14 +22,18 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "test:watch": "vitest",
+    "preview:web": "npm run build -w @nexus/web && npm run preview -w @nexus/web",
+    "audit:responsive": "node scripts/audit-responsive.mjs",
     "db:generate": "npm run db:generate -w @nexus/db",
     "db:push": "npm run db:push -w @nexus/db",
     "compose:up": "docker compose -f infra/docker-compose.yml up -d",
     "compose:down": "docker compose -f infra/docker-compose.yml down"
   },
   "devDependencies": {
+    "@sparticuz/chromium": "^153.0.0",
     "@types/node": "^22.10.0",
     "concurrently": "^9.1.0",
+    "playwright": "^1.53.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }

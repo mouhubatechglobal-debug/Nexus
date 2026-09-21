@@ -18,6 +18,7 @@ npm-debug.log*
 
 # Couverture de tests
 coverage/
+reports/
 
 # Divers
 .DS_Store
