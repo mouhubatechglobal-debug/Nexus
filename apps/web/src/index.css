@@ -1,0 +1,135 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0e14;
+  --surface: #121722;
+  --surface-2: #1a2130;
+  --border: #232c3f;
+  --text: #e8ecf4;
+  --muted: #8b96ab;
+  --accent: #6c8cff;
+  --up: #3ddc97;
+  --down: #ff6b6b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: radial-gradient(1200px 600px at 70% -10%, #16203a 0%, var(--bg) 55%);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.shell {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 64px 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+.hero h1 {
+  font-size: 64px;
+  margin: 0;
+  letter-spacing: -0.03em;
+}
+
+.accent {
+  color: var(--accent);
+}
+
+.tagline {
+  font-size: 20px;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px 28px;
+}
+
+.card h2 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.status-line {
+  margin: 0 0 12px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checks li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-up {
+  background: var(--up);
+  box-shadow: 0 0 8px var(--up);
+}
+
+.dot-down {
+  background: var(--down);
+  box-shadow: 0 0 8px var(--down);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.footer {
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+code {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 0.9em;
+}

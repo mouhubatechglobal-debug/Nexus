@@ -1,0 +1,36 @@
+{
+  "name": "nexus",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NEXUS — Digital Creation OS",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=20.10"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/workers"
+  ],
+  "scripts": {
+    "dev": "npm run build:packages && concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev -w @nexus/api",
+    "dev:web": "npm run dev -w @nexus/web",
+    "build": "npm run build:packages && npm run build -w @nexus/api -w @nexus/web",
+    "build:packages": "npm run build -w @nexus/config -w @nexus/contracts -w @nexus/core -w @nexus/db -w @nexus/observability -w @nexus/workers",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "npm run db:generate -w @nexus/db",
+    "db:push": "npm run db:push -w @nexus/db",
+    "compose:up": "docker compose -f infra/docker-compose.yml up -d",
+    "compose:down": "docker compose -f infra/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
