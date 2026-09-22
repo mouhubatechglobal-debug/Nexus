@@ -1,7 +1,4 @@
 import { createServer, type Server } from 'node:http';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import handler from '../api/index.ts';
 
 /**
@@ -16,8 +13,6 @@ process.env['DB_DRIVER'] = 'embedded';
 process.env['QUEUE_DRIVER'] = 'memory';
 delete process.env['NODE_ENV'];
 
-// Données isolées pour ce test (PGlite exige un dossier existant).
-process.env['NEXUS_TEST_DATA_DIR'] = mkdtempSync(join(tmpdir(), 'nexus-vercel-'));
 
 const server: Server = createServer((req, res) => {
   void handler(req, res);

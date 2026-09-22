@@ -29,3 +29,4 @@ reports/
 
 # Vercel CLI (état local)
 .vercel/
+.vercel-sim/

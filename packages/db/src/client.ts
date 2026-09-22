@@ -65,9 +65,9 @@ export function createDb(databaseUrl: string, options: DbOptions = {}): DbHandle
       const client = await pool.connect();
       try {
         await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY]);
-        const { MIGRATIONS_FOLDER } = await import('./migrate.js');
+        const { resolveMigrationsFolder } = await import('./migrate.js');
         const { migrate } = await import('drizzle-orm/node-postgres/migrator');
-        await migrate(drizzle(client, { schema }), { migrationsFolder: MIGRATIONS_FOLDER });
+        await migrate(drizzle(client, { schema }), { migrationsFolder: resolveMigrationsFolder() });
       } finally {
         await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]);
         client.release();
@@ -90,6 +90,12 @@ export interface EmbeddedDbOptions {
 
 /** Dossier de données par défaut (persistant, hors Git). */
 export function defaultEmbeddedDataDir(): string {
+  // Surcharge explicite (utile en bundle serverless aplati où
+  // import.meta.url ne reflète plus le layout du dépôt).
+  const fromEnv = process.env['NEXUS_DATA_DIR'];
+  if (fromEnv && fromEnv.length > 0) {
+    return fromEnv;
+  }
   return fileURLToPath(new URL('../../../.nexus-data/pglite', import.meta.url));
 }
 
@@ -120,9 +126,9 @@ export async function createEmbeddedDb(options: EmbeddedDbOptions = {}): Promise
       await db.execute(sql`SELECT 1`);
     },
     async migrate() {
-      const { MIGRATIONS_FOLDER } = await import('./migrate.js');
+      const { resolveMigrationsFolder } = await import('./migrate.js');
       const { migrate } = await import('drizzle-orm/pglite/migrator');
-      await migrate(db as never, { migrationsFolder: MIGRATIONS_FOLDER });
+      await migrate(db as never, { migrationsFolder: resolveMigrationsFolder() });
     },
     async close() {
       await client.close();

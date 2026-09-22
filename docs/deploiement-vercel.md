@@ -69,13 +69,38 @@ Alternative CLI : `npm i -g vercel && vercel` (le CLI lit `vercel.json`) ;
 ## Vérification locale du pont serverless (déjà exécutée)
 
 ```bash
-npx tsx scripts/verify-vercel-handler.ts
+npx tsx scripts/verify-vercel-handler.ts     # handler source
+node scripts/verify-vercel-bundle.mjs        # bundle aplati (conditions Vercel)
 ```
 
-Simule Vercel (serveur HTTP brut → handler exporté, préfixe `/api`) et
-valide : santé, enregistrement, session, création de projet (persistance),
-transaction pay (100 000/3 500/96 500), job digest (202). Résultat : **TOUT
-OK**, deux exécutions de suite.
+Deux niveaux de vérification, tous deux **TOUT OK** :
+
+1. **Handler source** : simule Vercel (serveur HTTP brut → handler exporté,
+   préfixe `/api`) et valide : santé, enregistrement, session, création de
+   projet (persistance), transaction pay (100 000/3 500/96 500), job digest
+   (202).
+2. **Bundle aplati** (`verify-vercel-bundle.mjs`) : reproduit le bundling
+   du builder (`esbuild --packages=external`, format ESM, banner
+   `createRequire`, `VERCEL=1`) puis rejoue le même flux E2E **à travers le
+   bundle** — c'est ce qui a révélé les points corrigés ci-dessous.
+
+Le CLI `vercel` lui-même ne peut pas être exécuté dans ce sandbox
+(`api.vercel.com` non joignable — seule la registry npm passe) ; la
+simulation recouvre précisément l'étape de bundling du builder.
+
+## Findings de la ré-analyse approfondie (corrigés)
+
+| Constat | Risque si non traité | Correctif |
+| --- | --- | --- |
+| Le dossier des migrations était ancré sur `import.meta.url` | Dans un bundle aplati, chemin résolu au mauvais endroit → **API muette au démarrage à froid** | `resolveMigrationsFolder()` multi-candidats (layout source, racine de fonction, sous-chemin préservé, CWD) + variable `NEXUS_MIGRATIONS_DIR` ; erreur explicite listant les chemins testés |
+| pino-pretty (dev) démarre un worker thread ancré par `__dirname` | Crash du logger dans une fonction bundlée si `NODE_ENV ≠ production` | Transport « pretty » désactivé dès que `VERCEL=1` (toujours défini par la plateforme) — JSON brut, format attendu par Vercel |
+| Dossier de données PGlite calculé via `import.meta.url` | Chemin insensé dans un bundle aplati (mode embarqué/dev uniquement) | Variable `NEXUS_DATA_DIR` (la production utilise PostgreSQL, pas PGlite) |
+| `includeFiles` interprété relativement à la racine **ou** au point d'entrée selon les versions | Migrations absentes du paquet déployé | Tableau couvrant les deux interprétations + résolveur multi-candidats en filet ultime |
+
+Point important : **ne pas forcer le bundling de `node_modules`** — les
+assets internes des dépendances (wasm de PGlite, binaire Argon2, worker de
+pino) exigent leur layout d'origine ; `@vercel/node` le respecte nativement
+(sources locales aplaties + dépendances tracées par node-file-trace).
 
 ## Limitations honnêtes (aucune contournement automatique)
 
