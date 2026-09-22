@@ -82,7 +82,18 @@ export type Env = z.infer<typeof envSchema>;
  * Lève une `ZodError` explicite si une valeur est invalide.
  */
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  return envSchema.parse(source);
+  const parsed = envSchema.parse(source);
+  // Garde-fou production : le driver embarqué (PGlite) écrit sur le
+  // système de fichiers local, ÉPHÉMÈRE sur une plateforme serverless
+  // (Vercel…) — les données seraient perdues à froid. On refuse
+  // explicitement ce silence plutôt que de laisser croire à un réel.
+  if (parsed.NODE_ENV === 'production' && parsed.DB_DRIVER === 'embedded') {
+    throw new Error(
+      'DB_DRIVER=embedded est interdit en production (stockage éphémère). ' +
+        'Configurez DATABASE_URL vers un PostgreSQL réel avec DB_DRIVER=postgres.',
+    );
+  }
+  return parsed;
 }
 
 /**

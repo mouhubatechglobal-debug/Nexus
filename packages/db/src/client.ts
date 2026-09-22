@@ -27,9 +27,18 @@ export interface DbHandle {
   driver: DbDriver;
   /** Requête triviale pour les sondes /health et /ready. */
   ping(): Promise<void>;
+  /**
+   * Applique les migrations Drizzle (idempotent). Sur PostgreSQL, un
+   * verrou consultatif de session empêche deux instances de migrer en
+   * même temps (cas serverless : plusieurs démarrages à froid en parallèle).
+   */
+  migrate(): Promise<void>;
   /** Ferme proprement le handle (à appeler à l'arrêt du service). */
   close(): Promise<void>;
 }
+
+/** Verrou consultatif dédié aux migrations NEXUS (valeur arbitraire fixe). */
+export const MIGRATION_LOCK_KEY = 727_447;
 
 /**
  * Crée un pool PostgreSQL + l'instance Drizzle associée (production).
@@ -49,6 +58,20 @@ export function createDb(databaseUrl: string, options: DbOptions = {}): DbHandle
     driver: 'postgres',
     async ping() {
       await pool.query('SELECT 1');
+    },
+    async migrate() {
+      // Connexion DÉDIÉE : le verrou consultatif est lié à la session,
+      // il faut donc acquérir, migrer et libérer sur le même client.
+      const client = await pool.connect();
+      try {
+        await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY]);
+        const { MIGRATIONS_FOLDER } = await import('./migrate.js');
+        const { migrate } = await import('drizzle-orm/node-postgres/migrator');
+        await migrate(drizzle(client, { schema }), { migrationsFolder: MIGRATIONS_FOLDER });
+      } finally {
+        await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]);
+        client.release();
+      }
     },
     async close() {
       await pool.end();
@@ -95,6 +118,11 @@ export async function createEmbeddedDb(options: EmbeddedDbOptions = {}): Promise
     driver: 'embedded',
     async ping() {
       await db.execute(sql`SELECT 1`);
+    },
+    async migrate() {
+      const { MIGRATIONS_FOLDER } = await import('./migrate.js');
+      const { migrate } = await import('drizzle-orm/pglite/migrator');
+      await migrate(db as never, { migrationsFolder: MIGRATIONS_FOLDER });
     },
     async close() {
       await client.close();

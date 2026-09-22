@@ -170,3 +170,11 @@ Base de données : 19 tables (les 11 précédentes + `deployments`,
 `deployment_stages`, `analytics_events`, `merchants`,
 `payment_providers`, `transactions`, `ledger_entries`, `payouts`),
 migrations Drizzle `0001` et `0002`.
+
+## Déploiement
+
+Local : `npm run dev` (API :3001 + web :5173, proxy `/api`).
+Vercel : point d'entrée serverless `api/index.ts` + `vercel.json` —
+analyse complète, étapes et limitations dans `docs/deploiement-vercel.md`
+(PostgreSQL externe obligatoire ; `DB_DRIVER=embedded` refusé en
+production ; migrations auto avec verrou consultatif).

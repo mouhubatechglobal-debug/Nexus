@@ -26,3 +26,6 @@ reports/
 .vscode/*
 !.vscode/extensions.json
 .nexus-data/
+
+# Vercel CLI (état local)
+.vercel/

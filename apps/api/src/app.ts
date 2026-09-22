@@ -7,7 +7,6 @@ import { createLogger } from '@nexus/observability';
 import {
   createDb,
   createDbFromDriver,
-  runMigrations,
   type DbHandle,
 } from '@nexus/db';
 import { Redis } from 'ioredis';
@@ -64,8 +63,9 @@ export async function buildApp(options: BuildAppOptions) {
       ? await createDbFromDriver('embedded', config.DATABASE_URL)
       : createDb(config.DATABASE_URL, { max: 5 }));
 
-  if (ownsDb && config.DB_DRIVER === 'embedded') {
-    await runMigrations(db);
+  if (ownsDb) {
+    // Migration auto idempotente (verrou consultatif côté PostgreSQL).
+    await db.migrate();
   }
 
   const redis = new Redis(config.REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 1 });

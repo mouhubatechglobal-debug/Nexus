@@ -6,15 +6,11 @@ export const MIGRATIONS_FOLDER = fileURLToPath(new URL('../drizzle', import.meta
 
 /**
  * Applique les migrations SQL générées (table de suivi `drizzle.__drizzle_migrations`).
- * Fonctionne identiquement pour le driver standard (node-postgres)
- * et le driver embarqué (PGlite).
+ * Délègue au handle (le driver PostgreSQL protège l'opération avec un verrou
+ * consultatif — indispensable en serverless où plusieurs instances démarrent
+ * en parallèle). Fonctionne identiquement pour le driver standard
+ * (node-postgres) et le driver embarqué (PGlite).
  */
 export async function runMigrations(handle: DbHandle): Promise<void> {
-  if (handle.driver === 'embedded') {
-    const { migrate } = await import('drizzle-orm/pglite/migrator');
-    await migrate(handle.db as never, { migrationsFolder: MIGRATIONS_FOLDER });
-    return;
-  }
-  const { migrate } = await import('drizzle-orm/node-postgres/migrator');
-  await migrate(handle.db, { migrationsFolder: MIGRATIONS_FOLDER });
+  await handle.migrate();
 }
