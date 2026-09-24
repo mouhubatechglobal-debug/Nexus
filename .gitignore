@@ -1,0 +1,32 @@
+# Dépendances
+node_modules/
+
+# Builds
+dist/
+build/
+*.tsbuildinfo
+
+# Environnement
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Couverture de tests
+coverage/
+reports/
+
+# Divers
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.nexus-data/
+
+# Vercel CLI (état local)
+.vercel/
+.vercel-sim/
