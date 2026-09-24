@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, api, type PayAdapter, type PayTransaction } from '../lib/api';
+import { ApiError, api, type PayAdapter, type PayPayout, type PayTransaction } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { Badge, Button, Card, CopyButton, DataTable, EmptyState, PageHeader, SelectField, TextField, Toggle, type Column } from '../components/ui';
 
@@ -154,6 +154,7 @@ function PayPanel() {
   const isAdmin = organization?.role === 'admin' || organization?.role === 'owner';
   const [adapters, setAdapters] = useState<PayAdapter[]>([]);
   const [transactions, setTransactions] = useState<PayTransaction[]>([]);
+  const [payouts, setPayouts] = useState<PayPayout[]>([]);
   const [providerCode, setProviderCode] = useState('wave');
   const [amount, setAmount] = useState('100000');
   const [payoutAmount, setPayoutAmount] = useState('');
@@ -165,9 +166,17 @@ function PayPanel() {
   const load = useCallback(async () => {
     try {
       setError(null);
+      // organisé plus bas : adapters + transactions + (admin) payouts
       const [adapterList, transactionPage] = await Promise.all([api.payAdapters(), api.payTransactions(1, 8)]);
       setAdapters(adapterList);
       setTransactions(transactionPage.data);
+      if (organization && (organization.role === 'admin' || organization.role === 'owner')) {
+        try {
+          setPayouts((await api.payPayouts(1, 5)).data);
+        } catch {
+          setPayouts([]);
+        }
+      }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Chargement NEXUS Pay impossible');
     }
@@ -310,6 +319,19 @@ function PayPanel() {
                 </Button>
               </div>
             </form>
+          ) : null}
+
+          {payouts.length > 0 ? (
+            <div style={{ marginTop: 18 }}>
+              <h3 style={{ fontSize: 14, marginBottom: 10 }}>Payouts récents</h3>
+              {payouts.map((payout) => (
+                <p key={payout.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 13, margin: '6px 0' }}>
+                  <span className="mono">{payout.amount.toLocaleString('fr-FR')} {payout.currency}</span>
+                  <Badge tone={payout.status === 'paid' ? 'green' : payout.status === 'failed' ? 'red' : 'amber'}>{payout.status}</Badge>
+                  <span className="muted">{new Date(payout.createdAt).toLocaleDateString('fr-FR')}</span>
+                </p>
+              ))}
+            </div>
           ) : null}
         </div>
 

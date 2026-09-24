@@ -48,10 +48,21 @@ export function createJobService(config: Pick<Env, 'QUEUE_DRIVER' | 'REDIS_URL'>
       async enqueueDigest(payload: DigestPayload): Promise<{ jobId: string }> {
         return queue.enqueue(payload);
       },
+      async cancel(jobId: string, userId: string): Promise<'cancelled' | 'not_cancellable' | 'not_found'> {
+        const record = queue.get(jobId);
+        if (!record) return 'not_found';
+        // Admin requis (cohérent deploy/pay) — vérifié ICI : l'org du job
+        // n'est connue qu'après lecture du record (aucune fuite croisée).
+        const role = await memberRole(db, record.organizationId, userId);
+        if (role === null) return 'not_found';
+        if (role === 'member') return 'not_cancellable';
+        return queue.cancel(jobId) ? 'cancelled' : 'not_cancellable';
+      },
+
       async getStatus(jobId: string, userId: string): Promise<JobView | null> {
         const record = queue.get(jobId);
         // Scoping tenant : seul un membre de l'organisation voit le job.
-        if (!record || !(await isMember(db, record.organizationId, userId))) return null;
+        if (!record || (await memberRole(db, record.organizationId, userId)) === null) return null;
         return {
           jobId: record.jobId,
           queue: QUEUE_NAMES.digest,
@@ -81,10 +92,26 @@ export function createJobService(config: Pick<Env, 'QUEUE_DRIVER' | 'REDIS_URL'>
         );
       }
     },
+    async cancel(jobId: string, userId: string): Promise<'cancelled' | 'not_cancellable' | 'not_found'> {
+      try {
+        const job = await queue.getJob(jobId);
+        if (!job) return 'not_found';
+        const role = await memberRole(db, (job.data as DigestPayload).organizationId, userId);
+        if (role === null) return 'not_found';
+        if (role === 'member') return 'not_cancellable';
+        const state = await job.getState();
+        if (state !== 'waiting' && state !== 'delayed') return 'not_cancellable';
+        await job.remove();
+        return 'cancelled';
+      } catch {
+        throw new AppError(503, ERROR_CODES.INTERNAL_ERROR, 'File de jobs indisponible (Redis injoignable).');
+      }
+    },
+
     async getStatus(jobId: string, userId: string): Promise<JobView | null> {
       try {
         const job = await queue.getJob(jobId);
-        if (!job || !(await isMember(db, (job.data as DigestPayload).organizationId, userId))) return null;
+        if (!job || (await memberRole(db, (job.data as DigestPayload).organizationId, userId)) === null) return null;
         const state = await job.getState();
         const status = state === 'completed' ? 'completed' : state === 'failed' ? 'failed' : state === 'active' ? 'running' : 'queued';
         return {
@@ -105,14 +132,16 @@ export function createJobService(config: Pick<Env, 'QUEUE_DRIVER' | 'REDIS_URL'>
 
 export type JobService = ReturnType<typeof createJobService>;
 
-/** Appartenance organisation : base du scoping des jobs (aucune fuite croisée). */
-async function isMember(db: Database, organizationId: string, userId: string): Promise<boolean> {
+type OrgRole = 'owner' | 'admin' | 'member';
+
+/** Rôle de l'utilisateur dans l'organisation (null si externe) : base du scoping des jobs. */
+async function memberRole(db: Database, organizationId: string, userId: string): Promise<OrgRole | null> {
   const rows = await db
-    .select({ id: organizationMembers.id })
+    .select({ role: organizationMembers.role })
     .from(organizationMembers)
     .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, userId)))
     .limit(1);
-  return rows.length > 0;
+  return (rows[0]?.role as OrgRole | undefined) ?? null;
 }
 
 /** Compteur utilitaire partagé (tests). */

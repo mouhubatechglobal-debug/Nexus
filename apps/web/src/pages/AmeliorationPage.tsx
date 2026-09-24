@@ -1,21 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { SUGGESTIONS, type Suggestion } from '../data/mock';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiError, api, type AuditReport } from '../lib/api';
-import { Icon } from '../components/Icon';
 import { Badge, Button, Card, EmptyState, FilterChips, PageHeader, type BadgeTone } from '../components/ui';
-
-const PRIORITY_TONE: Record<Suggestion['priority'], BadgeTone> = {
-  haute: 'red',
-  moyenne: 'amber',
-  basse: 'neutral',
-};
-
-const CATEGORY_TONE: Record<Suggestion['category'], BadgeTone> = {
-  performance: 'cyan',
-  ux: 'blue',
-  sécurité: 'violet',
-  coût: 'green',
-};
 
 const STATUS_TONE: Record<AuditReport['results'][number]['status'], BadgeTone> = {
   PASS: 'green',
@@ -24,19 +9,35 @@ const STATUS_TONE: Record<AuditReport['results'][number]['status'], BadgeTone> =
   NOT_TESTED: 'neutral',
 };
 
-/** Section NEXUS Doctor — audits réels du projet actif. */
-function DoctorPanel() {
+const PRIORITY_TONE: Record<AuditReport['results'][number]['status'], BadgeTone> = {
+  FAIL: 'red',
+  WARN: 'amber',
+  NOT_TESTED: 'neutral',
+  PASS: 'green',
+};
+
+const CATEGORIES = ['Performance', 'SEO', 'Accessibility', 'UX', 'Security', 'Configuration'] as const;
+
+/**
+ * Amélioration — recommandations RÉELLES dérivées du dernier audit Doctor
+ * du projet actif. Aucun bouton « appliquer » fantaisiste : les constats
+ * FAIL/WARN/NOT_TESTED sont les vrais résultats exécutés côté serveur.
+ */
+export function AmeliorationPage() {
   const projectId = window.localStorage.getItem('nexus.activeProject');
   const [reports, setReports] = useState<AuditReport[] | null>(null);
+  const [category, setCategory] = useState('toutes');
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!projectId) return;
     try {
+      setError(null);
       setReports(await api.auditsList(projectId));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Chargement impossible');
+      setReports([]);
     }
   }, [projectId]);
 
@@ -58,143 +59,99 @@ function DoctorPanel() {
     }
   };
 
+  const latest = reports?.[0] ?? null;
+  const improvements = useMemo(() => (latest?.results ?? []).filter((check) => check.status !== 'PASS'), [latest]);
+  const filtered = improvements.filter((check) => category === 'toutes' || check.category === category);
+
   if (!projectId) {
     return (
-      <Card title="NEXUS Doctor" subtitle="Audit structuré du projet">
-        <EmptyState icon="flask" title="Aucun projet actif" hint="Ouvrez un projet depuis Projects pour lancer un audit." />
-      </Card>
+      <>
+        <PageHeader title="Amélioration" description="Recommandations dérivées des audits Doctor réels." />
+        <Card>
+          <EmptyState icon="flask" title="Aucun projet actif" hint="Ouvrez un projet depuis Projects pour lancer des audits." />
+        </Card>
+      </>
     );
   }
-
-  const latest = reports?.[0] ?? null;
-
-  return (
-    <Card
-      title="NEXUS Doctor"
-      subtitle="Audit structuré — un contrôle non exécutable est NOT_TESTED, jamais PASS"
-      actions={
-        <Button size="sm" icon="flask" onClick={run} disabled={running}>
-          {running ? 'Audit en cours…' : 'Lancer l’audit'}
-        </Button>
-      }
-    >
-      {error ? <p className="saved-note" style={{ color: 'var(--danger)' }} role="alert">{error}</p> : null}
-
-      {!latest && !running ? (
-        <EmptyState icon="flask" title="Aucun audit" hint="Lancez le premier audit Doctor de ce projet." />
-      ) : null}
-
-      {latest ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <p className="muted" style={{ fontSize: 12.5 }}>
-            Dernier audit : {new Date(latest.createdAt).toLocaleString('fr-FR')} —{' '}
-            <strong style={{ color: 'var(--text-1)' }}>{latest.summary.pass} PASS</strong>,{' '}
-            {latest.summary.warn} WARN, {latest.summary.fail} FAIL,{' '}
-            {latest.summary.notTested} NOT_TESTED
-            {reports && reports.length > 1 ? ` · ${reports.length} audits dans l’historique` : ''}
-          </p>
-          <ul className="checks">
-            {latest.results.map((check) => (
-              <li key={check.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <Badge tone={STATUS_TONE[check.status]}>{check.status}</Badge>
-                <span style={{ fontSize: 12.5, color: 'var(--text-2)', flex: 1, minWidth: 180 }}>{check.message}</span>
-                <span className="muted mono" style={{ fontSize: 11 }}>{check.category}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </Card>
-  );
-}
-
-export function AmeliorationPage() {
-  const [category, setCategory] = useState('toutes');
-  const [applied, setApplied] = useState<Set<string>>(new Set());
-
-  const filtered = SUGGESTIONS.filter((suggestion) => category === 'toutes' || suggestion.category === category);
-
-  const applyAll = () => {
-    setApplied(new Set(filtered.map((suggestion) => suggestion.id)));
-  };
-
-  const toggle = (id: string) => {
-    setApplied((previous) => {
-      const next = new Set(previous);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
 
   return (
     <>
       <PageHeader
         title="Amélioration"
-        description="Audit Doctor en temps réel et recommandations — appliquez-les en un clic."
+        description="Recommandations issues du dernier audit Doctor — constats réels, non simulés."
         actions={
-          <Button icon="sparkles" onClick={applyAll} disabled={filtered.every((s) => applied.has(s.id))}>
-            Tout appliquer
+          <Button icon="flask" onClick={() => void run()} disabled={running}>
+            {running ? 'Audit en cours…' : 'Relancer l’audit'}
           </Button>
         }
       />
 
-      <DoctorPanel />
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+
+      {latest ? (
+        <p className="muted" style={{ fontSize: 12.5, marginTop: -6 }}>
+          Dernier audit : {new Date(latest.createdAt).toLocaleString('fr-FR')} — {latest.summary.pass} PASS,{' '}
+          {latest.summary.warn} WARN, {latest.summary.fail} FAIL, {latest.summary.notTested} NOT_TESTED.
+        </p>
+      ) : null}
 
       <FilterChips
         ariaLabel="Filtrer par catégorie"
         value={category}
         onChange={setCategory}
         options={[
-          { value: 'toutes', label: 'Toutes', count: SUGGESTIONS.length },
-          { value: 'performance', label: 'Performance' },
-          { value: 'ux', label: 'UX' },
-          { value: 'sécurité', label: 'Sécurité' },
-          { value: 'coût', label: 'Coûts' },
+          { value: 'toutes', label: 'Toutes', count: improvements.length },
+          ...CATEGORIES.map((value) => ({
+            value,
+            label: value,
+            count: improvements.filter((check) => check.category === value).length,
+          })),
         ]}
       />
 
       <div className="suggestion-list">
-        {filtered.map((suggestion) => {
-          const isApplied = applied.has(suggestion.id);
-          return (
-            <article key={suggestion.id} className={`suggestion-card prio-${suggestion.priority}`}>
+        {reports === null && !running ? (
+          <Card>
+            <EmptyState icon="clock" title="Chargement…" hint="Récupération du dernier audit réel." />
+          </Card>
+        ) : filtered.length === 0 ? (
+          <Card>
+            <EmptyState
+              icon="check"
+              title={improvements.length === 0 ? 'Aucune amélioration en attente' : 'Aucun constat dans cette catégorie'}
+              hint={improvements.length === 0 ? 'Tous les contrôles exécutés sont PASS — relancez un audit après vos changements.' : 'Choisissez une autre catégorie.'}
+            />
+          </Card>
+        ) : (
+          filtered.map((check) => (
+            <article key={check.id} className={`suggestion-card prio-${check.status === 'FAIL' ? 'haute' : check.status === 'WARN' ? 'moyenne' : 'basse'}`}>
               <div className="suggestion-top">
                 <div style={{ minWidth: 0 }}>
-                  <h2 className="suggestion-title">{suggestion.title}</h2>
+                  <h2 className="suggestion-title">{check.message}</h2>
                   <p className="suggestion-detail" style={{ marginTop: 3 }}>
-                    {suggestion.detail}
+                    Catégorie Doctor : {check.category}
                   </p>
                 </div>
-                <Badge tone={PRIORITY_TONE[suggestion.priority]}>{suggestion.priority}</Badge>
+                <Badge tone={PRIORITY_TONE[check.status]}>{check.status === 'FAIL' ? 'priorité haute' : check.status === 'WARN' ? 'priorité moyenne' : 'à outiller'}</Badge>
               </div>
-
               <div className="suggestion-foot">
-                <Badge tone={CATEGORY_TONE[suggestion.category]}>{suggestion.category}</Badge>
-                <Badge tone="neutral">gain : {suggestion.gain}</Badge>
-                <Badge tone="neutral">effort : {suggestion.effort}</Badge>
-                {isApplied ? (
-                  <Button variant="ghost" size="sm" icon="check" onClick={() => toggle(suggestion.id)}>
-                    Appliquée — annuler
-                  </Button>
-                ) : (
-                  <Button variant="outline" size="sm" icon="zap" onClick={() => toggle(suggestion.id)}>
-                    Appliquer
-                  </Button>
-                )}
+                <Badge tone={STATUS_TONE[check.status]}>{check.status}</Badge>
+                <Badge tone="neutral">{check.category}</Badge>
               </div>
             </article>
-          );
-        })}
+          ))
+        )}
       </div>
 
-      <p className="muted" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
-        <Icon name="bulb" size={14} />
-        Les recommandations sont recalculées après chaque analyse complète (toutes les 6 heures).
-      </p>
+      {reports && reports.length > 1 ? (
+        <p className="muted" style={{ fontSize: 12.5 }}>
+          {reports.length} audits conservés pour ce projet — les recommandations suivent toujours le plus récent.
+        </p>
+      ) : null}
     </>
   );
 }

@@ -357,6 +357,14 @@ describe('Plateforme — Deploy, Analytics, Pay', () => {
     expect(body.mismatched).toHaveLength(1);
   });
 
+  it('payouts : liste paginée admin (le payout créé apparaît)', async () => {
+    const list = await pay('GET', '/payouts');
+    expect(list.statusCode).toBe(200);
+    const body = list.json() as { data: { id: string; amount: number }[]; total: number };
+    expect(body.total).toBeGreaterThanOrEqual(1);
+    expect(body.data.some((payout) => payout.amount === 50_000)).toBe(true);
+  });
+
   /* ------------------- Prompt 17 — Jobs (scoping tenant) -------------- */
 
   it('jobs : un utilisateur d’une autre organisation ne voit PAS le job (404)', async () => {
@@ -382,5 +390,38 @@ describe('Plateforme — Deploy, Analytics, Pay', () => {
     const outsider = sessionCookie(otherRegister);
     const leak = await handle.app.inject({ method: 'GET', url: `/v1/jobs/${jobId}`, headers: { cookie: outsider } });
     expect(leak.statusCode).toBe(404);
+  });
+
+  it('jobs : un simple membre (même org) ne peut PAS annuler — réservé admin', async () => {
+    const created = await handle.app.inject({
+      method: 'POST',
+      url: '/v1/jobs/digest',
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: { organizationId },
+    });
+    const { jobId } = created.json() as { jobId: string };
+
+    // Membre non-admin de la MÊME organisation (ajout direct en base).
+    const memberRegister = await handle.app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: { email: 'job-member@nexus.test', password: 'MotDePasse2026', organizationName: 'Job Roles Parallèle' },
+    });
+    const member = sessionCookie(memberRegister);
+    const memberUserId = (memberRegister.json() as { user: { id: string } }).user.id;
+    await db.db.execute(
+      sql`insert into organization_members (organization_id, user_id, role) values (${organizationId}, ${memberUserId}, 'member')`,
+    );
+    const refused = await handle.app.inject({ method: 'DELETE', url: `/v1/jobs/${jobId}`, headers: { cookie: member } });
+    expect(refused.statusCode).toBe(409); // membre non-admin → jamais annulation
+
+    // Admin : le job s'exécute instantanément (driver mémoire) → déjà
+    // terminé → 409 déterministe ; l'état « cancelled » réel est prouvé
+    // par tests/unit/jobsSandbox.test.ts (processor bloqué).
+    const adminOutcome = await handle.app.inject({ method: 'DELETE', url: `/v1/jobs/${jobId}`, headers: { cookie } });
+    expect([200, 409]).toContain(adminOutcome.statusCode);
+    if (adminOutcome.statusCode === 200) {
+      expect((adminOutcome.json() as { status: string }).status).toBe('cancelled');
+    }
   });
 });

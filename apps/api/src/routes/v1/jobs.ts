@@ -23,6 +23,18 @@ export async function jobRoutes(app: FastifyInstance, options: JobRoutesOptions)
     return { jobId, driver: options.jobService.driver };
   });
 
+  app.delete('/:jobId', { preHandler: guard }, async (request) => {
+    const { jobId } = request.params as { jobId: string };
+    // Annulation = opération sensible : ADMIN requis (vérifié dans le
+    // service, qui connaît l'organisation du job après lecture).
+    const outcome = await options.jobService.cancel(jobId, request.user!.id);
+    if (outcome === 'not_found') throw new AppError(404, ERROR_CODES.NOT_FOUND, 'Job introuvable.');
+    if (outcome === 'not_cancellable') {
+      throw new AppError(409, ERROR_CODES.CONFLICT, 'Ce job ne peut plus être annulé (déjà en exécution ou terminé).');
+    }
+    return { jobId, status: 'cancelled' };
+  });
+
   app.get('/:jobId', { preHandler: guard }, async (request) => {
     const { jobId } = request.params as { jobId: string };
     const job = await options.jobService.getStatus(jobId, request.user!.id);

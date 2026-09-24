@@ -98,6 +98,16 @@ export async function payRoutes(app: FastifyInstance, options: PayRoutesOptions)
     return payout;
   });
 
+  app.get('/payouts', { preHandler: guard }, async (request) => {
+    const query = parseBody(
+      z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(100).default(20) }),
+      request.query,
+    );
+    const organizationId = await firstOrg(db, request.user!.id);
+    await requireOrgAccess(db, request.user!, organizationId, 'admin');
+    return payService.listPayouts(organizationId, query.page, query.limit);
+  });
+
   app.post('/reconciliation', { preHandler: guard }, async (request) => {
     const input = parseBody(reconciliationSchema, request.body);
     const organizationId = await firstOrg(db, request.user!.id);

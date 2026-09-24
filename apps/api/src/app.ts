@@ -21,10 +21,12 @@ import {
   createProviderFromConfig,
 } from './services/index.js';
 import { createJobService } from './services/jobService.js';
+import { createIdeaService } from './services/ideaService.js';
 import { createDeployService } from './services/deployService.js';
 import { createAnalyticsService } from './services/analyticsService.js';
 import { createPayService } from './services/payService.js';
 import { jobRoutes } from './routes/v1/jobs.js';
+import { ideaRoutes } from './routes/v1/ideas.js';
 import { deploymentRoutes } from './routes/v1/deployments.js';
 import { analyticsRoutes } from './routes/v1/analytics.js';
 import { payRoutes } from './routes/v1/pay.js';
@@ -153,6 +155,9 @@ export async function buildApp(options: BuildAppOptions) {
   // --- Jobs (Queue → Redis|memory → Worker → Result) ---
   const jobService = createJobService(config, db.db);
   await app.register(jobRoutes, { prefix: '/v1/jobs', authService, jobService, db: db.db });
+
+  // --- Idées (réel, persistant, scopé organisation) ---
+  await app.register(ideaRoutes, { prefix: '/v1/ideas', authService, ideaService: createIdeaService(db.db), db: db.db });
 
   // --- Déploiements (pipeline contrôlé, production sur action explicite) ---
   await app.register(deploymentRoutes, {

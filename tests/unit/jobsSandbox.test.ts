@@ -144,4 +144,32 @@ describe('Sandbox — abstraction et refus par défaut', () => {
     await expect(runInSandbox({}, 'echo pwned', forced)).rejects.toThrow(/NON sécurisé/);
     void createFirecrackerDriver;
   });
+
+  it('InProcessQueue : cancel() annule un job en attente et le worker ne l’exécute jamais', async () => {
+    const { InProcessQueue } = await import('@nexus/workers');
+    let started = 0;
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queue = new InProcessQueue('nexus.digest', async () => {
+      started += 1;
+      await gate;
+      return { projects: 0, brainEntries: 0, analyticsEvents: 0, computedAt: new Date().toISOString() };
+    });
+    const { jobId } = await queue.enqueue({ organizationId: 'org-cancel', requestedBy: 'user-1' });
+    // Laisse le worker passer en running, puis annule un SECOND job encore en attente.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const second = await queue.enqueue({ organizationId: 'org-cancel', requestedBy: 'user-1' });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(queue.cancel(second.jobId)).toBe(true);
+    expect(queue.get(second.jobId)?.status).toBe('cancelled');
+    expect(queue.cancel(second.jobId)).toBe(false); // déjà annulé
+    expect(queue.cancel('inconnu')).toBe(false);
+
+    release?.();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(queue.get(jobId)?.status).toBe('completed');
+    expect(started).toBe(1); // le job annulé n'a JAMAIS démarré
+  });
 });

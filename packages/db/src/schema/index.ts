@@ -484,3 +484,30 @@ export const payouts = pgTable(
   },
   (table) => [index('payouts_merchant_idx').on(table.merchantId)],
 );
+
+export const ideaStatusEnum = pgEnum('idea_status', ['nouveau', 'evalue', 'valide']);
+
+/**
+ * NEXUS Ideas — capture d'idées par organisation (réel, persistant).
+ * Les votes sont incrémentés atomiquement côté serveur.
+ */
+export const ideas = pgTable(
+  'ideas',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    detail: text('detail').notNull().default(''),
+    tags: jsonb('tags').$type<string[]>().notNull().default([]),
+    votes: integer('votes').notNull().default(0),
+    status: ideaStatusEnum('status').notNull().default('nouveau'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('ideas_org_idx').on(table.organizationId)],
+);

@@ -239,6 +239,19 @@ body.nav-open .sidebar {
   width: 38px;
   height: 38px;
   border-radius: 11px;
+  overflow: hidden;
+  flex: none;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Réserve de compatibilité : l'ancien monogramme texte. */
+.brand-mark:not(:has(img)) {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 19px;

@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { and, count, desc, eq, inArray, or } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import {
   calculateFee,
   transactionSchema,
@@ -123,20 +123,36 @@ export function createPayService(config: Pick<Env, 'PAY_WEBHOOK_SECRET'>, db: Da
       const { amount, fee, net } = calculateFee(input.amount);
       const checkoutToken = `tok_${randomBytes(16).toString('hex')}`;
 
-      const [row] = await db
-        .insert(transactions)
-        .values({
-          merchantId,
-          organizationId,
-          providerCode: input.providerCode,
-          amount,
-          feeAmount: fee,
-          netAmount: net,
-          status: 'pending',
-          idempotencyKey: input.idempotencyKey,
-          checkoutToken,
-        })
-        .returning();
+      let row: typeof transactions.$inferSelect | undefined;
+      try {
+        [row] = await db
+          .insert(transactions)
+          .values({
+            merchantId,
+            organizationId,
+            providerCode: input.providerCode,
+            amount,
+            feeAmount: fee,
+            netAmount: net,
+            status: 'pending',
+            idempotencyKey: input.idempotencyKey,
+            checkoutToken,
+          })
+          .returning();
+      } catch (error) {
+        // Course d'idempotence : deux requêtes concurrentes avec la même clé —
+        // l'unique contrainte (organisation, clé) tranche ; le perdant rejoue
+        // la transaction gagnante (replay), jamais d'erreur 500.
+        if (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === '23505') {
+          const winner = await db
+            .select()
+            .from(transactions)
+            .where(and(eq(transactions.organizationId, organizationId), eq(transactions.idempotencyKey, input.idempotencyKey)))
+            .limit(1);
+          if (winner[0]) return { transaction: toTransaction(winner[0]), idempotentReplay: true };
+        }
+        throw error;
+      }
 
       if (!row) throw new AppError(500, ERROR_CODES.INTERNAL_ERROR, 'Création transaction impossible.');
       await adapterDef.createCheckout({ checkoutToken, amount });
@@ -254,34 +270,77 @@ export function createPayService(config: Pick<Env, 'PAY_WEBHOOK_SECRET'>, db: Da
       return rows.reduce((sum, row) => sum + row.credit - row.debit, 0);
     },
 
-    /** Payout : rôle admin exigé côté route ; destination tokenisée. */
+    /**
+     * Payout : rôle admin exigé côté route ; destination tokenisée.
+     * Transactionnel : verrou consultatif par organisation + recalcul du
+     * solde DANS la transaction — deux payouts concurrents ne peuvent pas
+     * décrocher le même solde (pas de grand livre négatif).
+     */
     async createPayout(organizationId: string, amount: number, destinationToken: string): Promise<{ id: string; amount: number; currency: string; status: string; createdAt: string }> {
-      const merchantRows = await db.select().from(merchants).where(eq(merchants.organizationId, organizationId)).limit(1);
-      const merchant = merchantRows[0];
-      if (!merchant) throw new AppError(404, ERROR_CODES.NOT_FOUND, 'Aucun compte marchand pour cette organisation.');
+      return db.transaction(async (tx) => {
+        // Verrou d'écriture par organisation (libéré à la fin de la transaction).
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${organizationId}))`);
 
-      const balance = await this.availableBalance(organizationId);
-      if (amount > balance) {
-        throw new AppError(409, ERROR_CODES.CONFLICT, `Solde insuffisant : ${balance} XOF disponibles.`);
+        const merchantRows = await tx.select().from(merchants).where(eq(merchants.organizationId, organizationId)).limit(1);
+        const merchant = merchantRows[0];
+        if (!merchant) throw new AppError(404, ERROR_CODES.NOT_FOUND, 'Aucun compte marchand pour cette organisation.');
+
+        const txIds = (await tx.select({ id: transactions.id }).from(transactions).where(eq(transactions.organizationId, organizationId))).map((row) => row.id);
+        const payoutIds = (await tx.select({ id: payouts.id }).from(payouts).where(eq(payouts.merchantId, merchant.id))).map((row) => row.id);
+        const scopes = [];
+        if (txIds.length > 0) scopes.push(inArray(ledgerEntries.transactionId, txIds));
+        if (payoutIds.length > 0) scopes.push(inArray(ledgerEntries.payoutId, payoutIds));
+        let balance = 0;
+        if (scopes.length > 0) {
+          const rows = await tx
+            .select()
+            .from(ledgerEntries)
+            .where(and(eq(ledgerEntries.account, 'merchant:available'), or(...scopes)));
+          balance = rows.reduce((sum, row) => sum + row.credit - row.debit, 0);
+        }
+        if (amount > balance) {
+          throw new AppError(409, ERROR_CODES.CONFLICT, `Solde insuffisant : ${balance} XOF disponibles.`);
+        }
+
+        const [payout] = await tx
+          .insert(payouts)
+          .values({ merchantId: merchant.id, amount, destinationToken, status: 'pending' })
+          .returning();
+        if (!payout) throw new AppError(500, ERROR_CODES.INTERNAL_ERROR, 'Création payout impossible.');
+
+        await tx.insert(ledgerEntries).values([
+          { payoutId: payout.id, entryType: 'payout', account: 'merchant:available', debit: amount, credit: 0 },
+          { payoutId: payout.id, entryType: 'payout', account: `bank:${destinationToken}`, debit: 0, credit: amount },
+        ]);
+
+        return {
+          id: payout.id,
+          amount: payout.amount,
+          currency: payout.currency,
+          status: payout.status,
+          createdAt: payout.createdAt.toISOString(),
+        };
+      });
+    },
+
+    /** Liste paginée des payouts de l'organisation (plus récents d'abord). */
+    async listPayouts(organizationId: string, page: number, limit: number) {
+      const merchantRows = await db.select({ id: merchants.id }).from(merchants).where(eq(merchants.organizationId, organizationId)).limit(1);
+      if (!merchantRows[0]) {
+        return { data: [] as { id: string; merchantId: string; amount: number; currency: string; status: string; createdAt: string }[], page, limit, total: 0, totalPages: 1 };
       }
-
-      const [payout] = await db
-        .insert(payouts)
-        .values({ merchantId: merchant.id, amount, destinationToken, status: 'pending' })
-        .returning();
-      if (!payout) throw new AppError(500, ERROR_CODES.INTERNAL_ERROR, 'Création payout impossible.');
-
-      await db.insert(ledgerEntries).values([
-        { payoutId: payout.id, entryType: 'payout', account: 'merchant:available', debit: amount, credit: 0 },
-        { payoutId: payout.id, entryType: 'payout', account: `bank:${destinationToken}`, debit: 0, credit: amount },
+      const merchantId = merchantRows[0].id;
+      const [rows, totals] = await Promise.all([
+        db.select().from(payouts).where(eq(payouts.merchantId, merchantId)).orderBy(desc(payouts.createdAt)).limit(limit).offset((page - 1) * limit),
+        db.select({ value: count() }).from(payouts).where(eq(payouts.merchantId, merchantId)),
       ]);
-
+      const total = Number(totals[0]?.value ?? 0);
       return {
-        id: payout.id,
-        amount: payout.amount,
-        currency: payout.currency,
-        status: payout.status,
-        createdAt: payout.createdAt.toISOString(),
+        data: rows.map((row) => ({ id: row.id, merchantId: row.merchantId, amount: row.amount, currency: row.currency, status: row.status, createdAt: row.createdAt.toISOString() })),
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
       };
     },
 

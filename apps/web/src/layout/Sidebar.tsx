@@ -12,7 +12,7 @@ export function Sidebar({ activeId, onNavigate }: SidebarProps) {
     <aside id="sidebar" className="sidebar">
       <div className="sidebar-brand">
         <span className="brand-mark" aria-hidden="true">
-          N
+          <img src="/logo.png" alt="" width="38" height="38" />
         </span>
         <span className="brand-text">
           <strong>NEXUS</strong>

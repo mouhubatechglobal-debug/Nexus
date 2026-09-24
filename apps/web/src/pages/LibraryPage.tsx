@@ -66,7 +66,7 @@ export function LibraryPage() {
       header: '',
       align: 'right',
       render: (item) => (
-        <Button variant="ghost" size="sm" icon="download" aria-label={`Télécharger ${item.name}`}>
+        <Button variant="ghost" size="sm" icon="download" disabled aria-label={`Export non disponible (démo) — ${item.name}`}>
           Exporter
         </Button>
       ),
@@ -78,11 +78,7 @@ export function LibraryPage() {
       <PageHeader
         title="Library"
         description="Ressources, modèles et jeux de données de votre espace."
-        actions={
-          <Button icon="plus" variant="outline">
-            Ajouter une ressource
-          </Button>
-        }
+        actions={<Badge tone="amber">Aperçu démo — non persisté</Badge>}
       />
 
       <div className="list-toolbar">

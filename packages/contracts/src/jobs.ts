@@ -21,7 +21,7 @@ export const digestResultSchema = z.object({
 export type DigestResult = z.infer<typeof digestResultSchema>;
 
 /** Cycle de vie d'un job (statut + progression + erreurs). */
-export const jobStatusSchema = z.enum(['queued', 'running', 'completed', 'failed']);
+export const jobStatusSchema = z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']);
 export type JobStatus = z.infer<typeof jobStatusSchema>;
 
 export const jobViewSchema = z.object({

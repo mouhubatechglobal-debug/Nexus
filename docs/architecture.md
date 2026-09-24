@@ -90,6 +90,7 @@ optionnels : `GET /health` les marque `down` le cas échéant.
 | Doctor | `/v1/projects/:id/audits` | audits PASS/WARN/FAIL/NOT_TESTED (honnêtes) |
 | IA | `/v1/ai/complete` | provider OpenAI-compatible, timeout, clé via env |
 | Agents | `services/agents` (`@nexus/agents`) | 7 agents à permissions fermées, aucun shell/secrets/fs global |
+| Idées | `/v1/ideas` (créer/lister/voter) | capture d'idées RÉELLE par organisation, votes atomiques serveur |
 
 Base de données : 11 tables (`users`, `sessions`, `organizations`,
 `organization_members`, `projects`, `brain_entries`, `project_files`,
@@ -109,7 +110,9 @@ Résultat persisté, consultable via `POST /v1/jobs/digest` (202) puis
 `GET /v1/jobs/:jobId`. **Aucun code utilisateur dans le worker** : le seul
 processor est interne et typé (`DigestPayload → DigestResult`).
 `QUEUE_DRIVER` : `memory` (défaut) ou `bullmq` (Redis requis ; injoignable
-→ 503 honnête, jamais d'attente infinie).
+→ 503 honnête, jamais d'attente infinie). Annulation : `DELETE
+/v1/jobs/:jobId` (admin) — un job en attente passe `cancelled` et n'est
+JAMAIS exécuté ; un job en cours/terminé refuse (409).
 
 ### 18 — Sandbox (ARCHITECTURE_ONLY)
 
@@ -155,7 +158,11 @@ cartes : **jamais de PAN/CVV** (schémas `.strict()`, checkout tokenisé
 (100 000 → 3 500 frais → 96 500 net). Idempotence `(organisation, clé)`,
 webhooks HMAC-SHA256 en temps constant + rejeu idempotent, grand livre en
 partie double, réconciliation par comparaison de références, payouts
-(tokenisés, admin, solde requis). Aucun paiement réel n'est testé ici.
+(tokenisés, admin, solde requis — création transactionnelle avec verrou
+consultatif par organisation : deux payouts concurrents ne peuvent pas
+décrocher le même solde ; idempotence des transactions résistante aux
+requêtes concurrentes (unique + replay). Liste des payouts : `GET
+/v1/pay/payouts` (admin). Aucun paiement réel n'est testé ici.
 
 ### 22 — Audit final
 
@@ -166,10 +173,10 @@ P0–P3 (fichier/problème/impact/solution), compteurs exacts (fichiers,
 tests, builds, migrations), intégrations externes réellement
 configurables, maturité justifiée — **aucun pourcentage inventé**.
 
-Base de données : 19 tables (les 11 précédentes + `deployments`,
+Base de données : 20 tables (les 11 précédentes + `deployments`,
 `deployment_stages`, `analytics_events`, `merchants`,
-`payment_providers`, `transactions`, `ledger_entries`, `payouts`),
-migrations Drizzle `0001` et `0002`.
+`payment_providers`, `transactions`, `ledger_entries`, `payouts`,
+`ideas`), migrations Drizzle `0001`, `0002`, `0003`.
 
 ## Déploiement
 

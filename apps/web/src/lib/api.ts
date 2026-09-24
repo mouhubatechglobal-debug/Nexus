@@ -232,6 +232,19 @@ export interface PayPayout {
   createdAt: string;
 }
 
+export interface Idea {
+  id: string;
+  organizationId: string;
+  createdBy: string;
+  title: string;
+  detail: string;
+  tags: string[];
+  votes: number;
+  status: 'nouveau' | 'evalue' | 'valide';
+  createdAt: string;
+  updatedAt: string;
+}
+
 /* ------------------------------- Client ------------------------------- */
 
 export const api = {
@@ -336,6 +349,19 @@ export const api = {
     request<{ transaction: PayTransaction; idempotentReplay: boolean }>('/v1/pay/transactions', { method: 'POST', ...body(input) }),
   payCreatePayout: (input: { amount: number; destinationToken: string }) =>
     request<PayPayout>('/v1/pay/payouts', { method: 'POST', ...body(input) }),
+  payPayouts: (page = 1, limit = 10) =>
+    request<Paginated<PayPayout>>(`/v1/pay/payouts?page=${page}&limit=${limit}`),
+
+  // Ideas — réel, persistant, scopé organisation
+  ideas: (organizationId: string, page = 1, limit = 50) =>
+    request<Paginated<Idea>>(`/v1/ideas?organizationId=${organizationId}&page=${page}&limit=${limit}`),
+  ideaCreate: (input: { organizationId: string; title: string; detail?: string; tags?: string[] }) =>
+    request<Idea>('/v1/ideas', { method: 'POST', ...body(input) }),
+  ideaVote: (ideaId: string, organizationId: string) =>
+    request<Idea>(`/v1/ideas/${ideaId}/vote?organizationId=${organizationId}`, { method: 'POST' }),
+
+  // Jobs — annulation (admin)
+  jobCancel: (jobId: string) => request<{ jobId: string; status: string }>(`/v1/jobs/${jobId}`, { method: 'DELETE' }),
 };
 
 /** Sonde de santé (inchangée — Result typé). */

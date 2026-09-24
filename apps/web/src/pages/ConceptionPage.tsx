@@ -1,5 +1,5 @@
 import { CONCEPTION, type ConceptionItem, type ConceptionStage } from '../data/mock';
-import { Badge, Button, Card, PageHeader, Tag, type BadgeTone } from '../components/ui';
+import { Badge, Card, PageHeader, Tag, type BadgeTone } from '../components/ui';
 
 const STAGES: { id: ConceptionStage; label: string; hint: string }[] = [
   { id: 'wireframes', label: 'Wireframes', hint: 'Structures et parcours' },
@@ -19,11 +19,7 @@ export function ConceptionPage() {
       <PageHeader
         title="Conception"
         description="De l'écran au système prêt à coder."
-        actions={
-          <Button icon="plus" variant="outline">
-            Nouvel élément
-          </Button>
-        }
+        actions={<Badge tone="amber">Aperçu démo — non persisté</Badge>}
       />
 
       <Card title="Tableau de conception" subtitle="Faites défiler horizontalement sur mobile — chaque colonne est une étape.">

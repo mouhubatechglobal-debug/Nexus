@@ -119,7 +119,6 @@ export function DashboardPage() {
                 <Link key={stage.id} to={stage.path} className={`pipeline-stage tone-${stage.tone}`}>
                   <Icon name={stage.id === 'code' ? 'code' : stage.id === 'research' ? 'search-doc' : stage.id === 'conception' ? 'pen' : stage.id === 'test' ? 'flask' : stage.id === 'deploy' ? 'upload-cloud' : 'bulb'} size={16} />
                   <span>{stage.label}</span>
-                  <span className="pipeline-count">{stage.count}</span>
                 </Link>
               ))}
             </div>

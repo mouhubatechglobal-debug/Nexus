@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { IDEAS, type Idea } from '../data/mock';
-import { Badge, Button, Card, EmptyState, PageHeader, ProgressBar, TextField, type BadgeTone } from '../components/ui';
+import { useCallback, useEffect, useState } from 'react';
+import { ApiError, api, type Idea } from '../lib/api';
+import { useAuth } from '../lib/auth';
+import { Badge, Button, Card, EmptyState, PageHeader, TextField } from '../components/ui';
 
-const IMPACT_TONE: Record<Idea['impact'], BadgeTone> = { fort: 'green', moyen: 'amber', faible: 'neutral' };
-const STATUS_TONE: Record<Idea['status'], BadgeTone> = { nouveau: 'cyan', évalué: 'violet', validé: 'green' };
+const STATUS_TONE: Record<Idea['status'], 'cyan' | 'violet' | 'green'> = { nouveau: 'cyan', evalue: 'violet', valide: 'green' };
+const STATUS_LABEL: Record<Idea['status'], string> = { nouveau: 'nouveau', evalue: 'évalué', valide: 'validé' };
 
 interface Draft {
   title: string;
@@ -13,40 +14,69 @@ interface Draft {
 
 const EMPTY_DRAFT: Draft = { title: '', detail: '', tags: '' };
 
+/**
+ * Idea — capture d'idées RÉELLE (table `ideas`, scopée par organisation).
+ * Les votes sont incrémentés côté serveur ; aucun état local fantôme.
+ */
 export function IdeaPage() {
-  const [ideas, setIdeas] = useState<Idea[]>(IDEAS);
+  const { organization } = useAuth();
+  const [ideas, setIdeas] = useState<Idea[]>([]);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const addIdea = () => {
+  const load = useCallback(async () => {
+    if (!organization) return;
+    setLoading(true);
+    try {
+      setError(null);
+      const page = await api.ideas(organization.id);
+      setIdeas(page.data);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Chargement des idées impossible');
+      setIdeas([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [organization]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const addIdea = async () => {
+    if (!organization) return;
     if (draft.title.trim().length < 3) {
       setError('Donnez un titre d’au moins 3 caractères.');
       return;
     }
-    const idea: Idea = {
-      id: `IDEA-${Math.floor(Math.random() * 900 + 100)}`,
-      title: draft.title.trim(),
-      detail: draft.detail.trim() || 'Description à compléter.',
-      tags: draft.tags
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean)
-        .slice(0, 4),
-      impact: 'moyen',
-      effort: 'moyen',
-      score: 0,
-      votes: 0,
-      status: 'nouveau',
-    };
-    setIdeas((previous) => [idea, ...previous]);
-    setDraft(EMPTY_DRAFT);
+    setBusy(true);
     setError(null);
+    setNotice(null);
+    try {
+      const tags = draft.tags.split(',').map((t) => t.trim()).filter(Boolean).slice(0, 4);
+      await api.ideaCreate({ organizationId: organization.id, title: draft.title.trim(), detail: draft.detail.trim(), tags });
+      setDraft(EMPTY_DRAFT);
+      setNotice('Idée enregistrée.');
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Enregistrement impossible');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const vote = (id: string) => {
-    setIdeas((previous) =>
-      previous.map((idea) => (idea.id === id ? { ...idea, votes: idea.votes + 1 } : idea)),
-    );
+  const vote = async (idea: Idea) => {
+    if (!organization) return;
+    setError(null);
+    try {
+      await api.ideaVote(idea.id, organization.id);
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Vote impossible');
+    }
   };
 
   return (
@@ -56,13 +86,24 @@ export function IdeaPage() {
         description="Capturez et évaluez de nouvelles idées avant de les transformer en projets."
       />
 
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="saved-note" role="status">
+          {notice}
+        </p>
+      )}
+
       <div className="split-2">
-        <Card title="Nouvelle idée" subtitle="Décrivez votre intuition — Nexus l'évaluera plus tard">
+        <Card title="Nouvelle idée" subtitle="Enregistrée dans votre espace, persistante">
           <form
             className="form-grid"
             onSubmit={(event) => {
               event.preventDefault();
-              addIdea();
+              void addIdea();
             }}
           >
             <TextField
@@ -72,7 +113,6 @@ export function IdeaPage() {
               placeholder="Ex. Palette de commandes (Ctrl+K)"
               value={draft.title}
               onChange={(title) => setDraft((d) => ({ ...d, title }))}
-              hint={error ?? undefined}
             />
             <div className="field">
               <label className="field-label" htmlFor="idea-detail">
@@ -95,12 +135,13 @@ export function IdeaPage() {
               onChange={(tags) => setDraft((d) => ({ ...d, tags }))}
             />
             <div className="form-actions">
-              <Button type="submit" icon="plus">
-                Ajouter au backlog
+              <Button type="submit" icon="plus" disabled={busy}>
+                {busy ? 'Enregistrement…' : 'Ajouter au backlog'}
               </Button>
               <Button
                 variant="outline"
                 icon="sparkles"
+                type="button"
                 onClick={() =>
                   setDraft({
                     title: 'Raccourcis d’export rapides',
@@ -116,7 +157,9 @@ export function IdeaPage() {
         </Card>
 
         <Card title={`Backlog d'idées — ${ideas.length}`} subtitle="Votez pour prioriser les évaluations">
-          {ideas.length === 0 ? (
+          {loading ? (
+            <EmptyState icon="clock" title="Chargement…" hint="Récupération du backlog réel." />
+          ) : ideas.length === 0 ? (
             <EmptyState icon="bulb" title="Backlog vide" hint="Ajoutez votre première idée avec le formulaire." />
           ) : (
             <div className="idea-list">
@@ -124,19 +167,14 @@ export function IdeaPage() {
                 <article key={idea.id} className="idea-card">
                   <div className="idea-top">
                     <div style={{ minWidth: 0 }}>
-                      <p className="mono muted" style={{ fontSize: 11 }}>
-                        {idea.id}
-                      </p>
                       <h3 className="idea-title">{idea.title}</h3>
                     </div>
-                    <Badge tone={STATUS_TONE[idea.status]}>{idea.status}</Badge>
+                    <Badge tone={STATUS_TONE[idea.status]}>{STATUS_LABEL[idea.status]}</Badge>
                   </div>
 
-                  <p className="idea-detail">{idea.detail}</p>
+                  {idea.detail ? <p className="idea-detail">{idea.detail}</p> : null}
 
                   <div className="idea-meta">
-                    <Badge tone={IMPACT_TONE[idea.impact]}>impact {idea.impact}</Badge>
-                    <Badge tone="neutral">effort {idea.effort}</Badge>
                     {idea.tags.map((tag) => (
                       <span key={tag} className="tag">
                         {tag}
@@ -144,15 +182,13 @@ export function IdeaPage() {
                     ))}
                   </div>
 
-                  {idea.score > 0 ? <ProgressBar value={idea.score} label="Potentiel estimé" tone={idea.score >= 75 ? 'green' : 'blue'} size="sm" /> : null}
-
                   <div className="idea-foot">
                     <span className="idea-score">
-                      <strong>{idea.score > 0 ? idea.score : '—'}</strong>
-                      score Nexus
+                      <strong>{idea.votes}</strong>
+                      {idea.votes > 1 ? 'soutiens' : 'soutien'}
                     </span>
-                    <Button variant="outline" size="sm" icon="zap" onClick={() => vote(idea.id)} aria-label={`Soutenir l'idée ${idea.title}`}>
-                      Soutenir ({idea.votes})
+                    <Button variant="outline" size="sm" icon="zap" onClick={() => void vote(idea)} aria-label={`Soutenir l'idée ${idea.title}`}>
+                      Soutenir
                     </Button>
                   </div>
                 </article>

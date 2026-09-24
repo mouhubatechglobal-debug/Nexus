@@ -139,6 +139,10 @@ export class InProcessQueue {
   readonly name: string;
   private readonly records = new Map<string, MemoryRecord>();
   private readonly processor: (payload: DigestPayload, onProgress?: (p: number) => Promise<void> | void) => Promise<DigestResult>;
+  /** File FIFO réelle : les jobs restent « queued » jusqu'à leur tour. */
+  private pending: string[] = [];
+  private readonly payloads = new Map<string, DigestPayload>();
+  private pumping = false;
   private sequence = 0;
 
   constructor(name: string, processor: InProcessQueue['processor']) {
@@ -147,8 +151,9 @@ export class InProcessQueue {
   }
 
   /**
-   * Enfile et exécute (asynchrone côté appelant). Les échecs respectent
-   * la politique de retry : `attempts` tentatives au total.
+   * Enfile le job (état « queued ») — l'exécution démarre dès que les jobs
+   * précédents sont terminés (un worker à la fois, comme BullMQ en
+   * concurrency 1). Les échecs respectent la politique de retry.
    */
   async enqueue(payload: DigestPayload): Promise<{ jobId: string }> {
     this.sequence += 1;
@@ -162,13 +167,47 @@ export class InProcessQueue {
       result: null,
       error: null,
     });
-    void this.run(jobId, payload);
+    this.pending.push(jobId);
+    this.payloads.set(jobId, payload);
+    void this.pump();
     return { jobId };
+  }
+
+  /**
+   * Annule un job EN ATTENTE (jamais un job déjà en exécution —
+   * le processor ne peut pas être interrompu en toute sécurité).
+   * Renvoie false si le job est inconnu, annulé ou déjà démarré.
+   */
+  cancel(jobId: string): boolean {
+    const record = this.records.get(jobId);
+    if (!record || record.status !== 'queued') return false;
+    record.status = 'cancelled';
+    this.pending = this.pending.filter((id) => id !== jobId);
+    this.payloads.delete(jobId);
+    return true;
+  }
+
+  /** Boucle du worker : un job à la fois, les annulés sont ignorés. */
+  private async pump(): Promise<void> {
+    if (this.pumping) return;
+    this.pumping = true;
+    try {
+      while (this.pending.length > 0) {
+        const jobId = this.pending.shift()!;
+        const record = this.records.get(jobId);
+        const payload = this.payloads.get(jobId);
+        this.payloads.delete(jobId);
+        if (!record || !payload || record.status === 'cancelled') continue;
+        await this.run(jobId, payload);
+      }
+    } finally {
+      this.pumping = false;
+    }
   }
 
   private async run(jobId: string, payload: DigestPayload): Promise<void> {
     const record = this.records.get(jobId);
-    if (!record) return;
+    if (!record || record.status === 'cancelled') return;
     record.status = 'running';
     record.attempts += 1;
     try {
@@ -183,7 +222,11 @@ export class InProcessQueue {
         // Backoff exponentiel (réel mais réduit pour les tests : délai court).
         const delay = JOB_RETRY_POLICY.backoff.delay * 2 ** (record.attempts - 1);
         record.status = 'queued';
-        setTimeout(() => void this.run(jobId, payload), Math.min(delay, 50));
+        setTimeout(() => {
+          this.pending.push(jobId);
+          this.payloads.set(jobId, payload);
+          void this.pump();
+        }, Math.min(delay, 50));
         return;
       }
       record.status = 'failed';

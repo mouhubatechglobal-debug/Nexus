@@ -38,7 +38,7 @@ export function AuthScreen() {
     <main className="auth-screen">
       <div className="card auth-card">
         <div className="sidebar-brand" style={{ borderTop: 'none', paddingTop: 0 }}>
-          <span className="brand-mark" aria-hidden="true">N</span>
+          <span className="brand-mark" aria-hidden="true"><img src="/logo.png" alt="" width="38" height="38" /></span>
           <span className="brand-text">
             <strong>NEXUS</strong>
             <small>Digital Creation OS</small>
