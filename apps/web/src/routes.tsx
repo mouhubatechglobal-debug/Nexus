@@ -10,6 +10,7 @@ import { DeployPage } from './pages/DeployPage';
 import { AnalysePage } from './pages/AnalysePage';
 import { AmeliorationPage } from './pages/AmeliorationPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { ChannelsPage } from './pages/ChannelsPage';
 import type { RouteDefinition } from './router';
 
 /**
@@ -126,6 +127,16 @@ export const ROUTES: RouteDefinition[] = [
     icon: 'sparkles',
     inNav: true,
     element: <AmeliorationPage />,
+  },
+  {
+    id: 'channels',
+    path: '/channels',
+    label: 'Copilote',
+    description: 'Liaison WhatsApp / Telegram de l’assistant',
+    section: 'Système',
+    icon: 'bell',
+    inNav: true,
+    element: <ChannelsPage />,
   },
   {
     id: 'settings',

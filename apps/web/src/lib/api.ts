@@ -245,6 +245,35 @@ export interface Idea {
   updatedAt: string;
 }
 
+/** Copilote — canaux de messagerie (WhatsApp / Telegram). */
+export type ChannelKind = 'telegram' | 'whatsapp' | 'mock';
+
+export interface ChannelDiagnostic {
+  channel: ChannelKind;
+  webhook: 'configured' | 'missing-secret';
+  send: 'ok' | 'blocked';
+  reason: string;
+}
+
+export interface ChannelIdentity {
+  id: string;
+  tenantId: string;
+  userId: string;
+  channel: ChannelKind;
+  externalId: string;
+  externalTag: string | null;
+  consent: 'pending' | 'granted' | 'revoked';
+  linkedAt: string;
+  createdAt: string;
+}
+
+export interface ChannelLinkCode {
+  id: string;
+  channel: ChannelKind;
+  code: string;
+  expiresAt: string;
+}
+
 /* ------------------------------- Client ------------------------------- */
 
 export const api = {
@@ -254,7 +283,7 @@ export const api = {
     request<{ user: AuthUser }>('/v1/auth/login', { method: 'POST', ...body({ email, password }) }),
   register: (input: { email: string; password: string; displayName?: string; organizationName?: string }) =>
     request<{ user: AuthUser }>('/v1/auth/register', { method: 'POST', ...body(input) }),
-  logout: () => request<void>('/v1/auth/logout', { method: 'POST' }),
+  logout: () => request<undefined>('/v1/auth/logout', { method: 'POST' }),
 
   // Organisations
   organizations: () => request<{ data: Organization[] }>('/v1/organizations').then((r) => r.data),
@@ -272,7 +301,7 @@ export const api = {
   createProject: (input: { organizationId: string; name: string; description?: string }) =>
     request<Project>('/v1/projects', { method: 'POST', ...body(input) }),
   deleteProject: (projectId: string) =>
-    request<void>(`/v1/projects/${projectId}`, { method: 'DELETE' }),
+    request<undefined>(`/v1/projects/${projectId}`, { method: 'DELETE' }),
 
   // Brain
   brainList: (projectId: string, kind?: BrainKind) =>
@@ -280,7 +309,7 @@ export const api = {
   brainCreate: (projectId: string, input: { kind: BrainKind; title: string; content: string }) =>
     request<BrainEntry>(`/v1/projects/${projectId}/brain`, { method: 'POST', ...body(input) }),
   brainDelete: (projectId: string, entryId: string) =>
-    request<void>(`/v1/projects/${projectId}/brain/${entryId}`, { method: 'DELETE' }),
+    request<undefined>(`/v1/projects/${projectId}/brain/${entryId}`, { method: 'DELETE' }),
 
   // Forge — fichiers
   filesList: (projectId: string, prefix?: string) =>
@@ -362,6 +391,14 @@ export const api = {
 
   // Jobs — annulation (admin)
   jobCancel: (jobId: string) => request<{ jobId: string; status: string }>(`/v1/jobs/${jobId}`, { method: 'DELETE' }),
+
+  // Copilote — canaux de messagerie (liaison, identités, diagnostic)
+  channelDiagnostic: () => request<{ data: ChannelDiagnostic[] }>('/v1/channels/diagnostic').then((r) => r.data),
+  channelIdentities: () => request<{ data: ChannelIdentity[] }>('/v1/channels/identities').then((r) => r.data),
+  channelCreateLinkCode: (channel: ChannelKind) =>
+    request<{ data: ChannelLinkCode }>('/v1/channels/link-codes', { method: 'POST', ...body({ channel }) }).then((r) => r.data),
+  channelUnlink: (identityId: string) =>
+    request<{ data: { unlinked: boolean } }>(`/v1/channels/identities/${identityId}`, { method: 'DELETE' }).then((r) => r.data),
 };
 
 /** Sonde de santé (inchangée — Result typé). */

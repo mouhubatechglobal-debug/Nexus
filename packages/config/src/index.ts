@@ -73,6 +73,19 @@ export const envSchema = z.object({
    * Défaut réservé au développement — définir une valeur forte en production.
    */
   PAY_WEBHOOK_SECRET: z.string().min(16).default('nexus-dev-pay-webhook-secret'),
+
+  /**
+   * Canaux de messagerie (@nexus/channels). Les secrets de webhook valident
+   * les signatures entrantes ; les tokens d'envoi restent optionnels —
+   * sans eux les adaptateurs répondent BLOCKED (aucun appel réseau).
+   * Défauts réservés au développement.
+   */
+  CHANNEL_MOCK_SECRET: z.string().min(16).default('nexus-dev-channel-mock-secret'),
+  TELEGRAM_WEBHOOK_SECRET: z.string().min(16).default('nexus-dev-telegram-webhook-secret'),
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  WHATSAPP_APP_SECRET: z.string().min(16).default('nexus-dev-whatsapp-app-secret'),
+  WHATSAPP_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -15,3 +15,4 @@ export * from './deployments.js';
 export * from './analytics.js';
 export * from './pay.js';
 export * from './ideas.js';
+export * from './channels.js';

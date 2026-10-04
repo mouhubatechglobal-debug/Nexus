@@ -25,6 +25,8 @@ import { createIdeaService } from './services/ideaService.js';
 import { createDeployService } from './services/deployService.js';
 import { createAnalyticsService } from './services/analyticsService.js';
 import { createPayService } from './services/payService.js';
+import { MockAdapter, TelegramAdapter, WhatsAppAdapter, createChannelService } from '@nexus/channels';
+import { channelRoutes } from './routes/v1/channels.js';
 import { jobRoutes } from './routes/v1/jobs.js';
 import { ideaRoutes } from './routes/v1/ideas.js';
 import { deploymentRoutes } from './routes/v1/deployments.js';
@@ -172,6 +174,34 @@ export async function buildApp(options: BuildAppOptions) {
     prefix: '/v1/analytics',
     authService,
     analyticsService: createAnalyticsService(db.db),
+    db: db.db,
+  });
+
+  // --- Canaux de messagerie (copilote : mock réel, telegram/whatsapp BLOCKED sans token) ---
+  const channelService = createChannelService({ db: db.db, ipHashSalt: config.COOKIE_SECRET });
+  await app.register(channelRoutes, {
+    prefix: '/v1/channels',
+    authService,
+    channelService,
+    adapters: {
+      mock: new MockAdapter(),
+      telegram: new TelegramAdapter(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_WEBHOOK_SECRET),
+      whatsapp: new WhatsAppAdapter(config.WHATSAPP_TOKEN, config.WHATSAPP_APP_SECRET, config.WHATSAPP_PHONE_NUMBER_ID),
+    },
+    secrets: {
+      mock: config.CHANNEL_MOCK_SECRET,
+      telegram: config.TELEGRAM_WEBHOOK_SECRET,
+      whatsapp: config.WHATSAPP_APP_SECRET,
+    },
+    sendStatus: {
+      mock: { status: 'ok', reason: 'Adaptateur en mémoire (tests et développement).' },
+      telegram: config.TELEGRAM_BOT_TOKEN
+        ? { status: 'ok', reason: 'TELEGRAM_BOT_TOKEN configuré.' }
+        : { status: 'blocked', reason: 'TELEGRAM_BOT_TOKEN absent — le définir pour activer l’envoi.' },
+      whatsapp: config.WHATSAPP_TOKEN && config.WHATSAPP_PHONE_NUMBER_ID
+        ? { status: 'ok', reason: 'WHATSAPP_TOKEN et WHATSAPP_PHONE_NUMBER_ID configurés.' }
+        : { status: 'blocked', reason: 'WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID absents — accès Meta requis.' },
+    },
     db: db.db,
   });
 
