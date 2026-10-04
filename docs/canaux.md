@@ -31,7 +31,8 @@ Provider → POST /v1/channels/webhooks/:channel
 ## Tables (migration `0004_*`)
 
 - `channel_identities` — liaison tenant↔compte externe, UNIQUE (canal, external_id), consentement.
-- `channel_messages` — **métadonnées uniquement** (jamais le contenu) ; UNIQUE (direction, external_message_id) = idempotence.
+- `channel_seen_messages` — **idempotence globale** : réservation atomique de l'identifiant externe AVANT toute résolution d'identité (un rejeu n'est jamais traité deux fois, même pendant la liaison). Sans FK, sans contenu.
+- `channel_messages` — **métadonnées uniquement** (jamais le contenu) ; UNIQUE (direction, external_message_id) = double filet au niveau tenant.
 - `channel_link_codes` — code 6 chiffres, usage unique, 10 min.
 - `deletion_requests` — demandes /supprimer (scope canal ou tout).
 - `access_logs` — action + IP **hachée** (SHA-256 + sel), jamais de contenu.

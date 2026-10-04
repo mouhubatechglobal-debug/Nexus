@@ -151,6 +151,11 @@ describe('ÉTAPE 1 — canaux copilote (webhooks, liaison, idempotence, isolatio
     expect(data[0]!.externalId).toBe('900002');
     expect(data[0]!.consent).toBe('granted');
     expect(data[0]!.channel).toBe('mock');
+
+    // Rejeu du MÊME message de liaison : ignoré (idempotence globale).
+    const replay = await mockWebhook(mockPayload('msg-link-1', '900002', { text: code }));
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json() as { received: number; duplicate: number }).toEqual({ received: 0, duplicate: 1 });
   });
 
   it('code à usage unique : un second usage du même code échoue (message neutre)', async () => {

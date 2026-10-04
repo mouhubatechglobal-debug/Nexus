@@ -12,6 +12,7 @@ import {
   channelIdentities,
   channelLinkCodes,
   channelMessages,
+  channelSeenMessages,
   deletionRequests,
   type Database,
 } from '@nexus/db';
@@ -154,6 +155,18 @@ export function createChannelService(deps: ChannelServiceDeps) {
      * Renvoie le texte à répondre (null = message dupliqué, rien à faire).
      */
     async handleInbound(message: InboundMessage, locale: Locale = 'fr', ip = '0.0.0.0'): Promise<{ reply: string | null; duplicate: boolean; identity?: ChannelIdentity }> {
+      // 0. Idempotence GLOBALE : réservation atomique AVANT tout traitement
+      //    (même un expéditeur inconnu « consomme » son identifiant externe —
+      //    un rejeu n'est JAMAIS traité deux fois).
+      const seen = await db
+        .insert(channelSeenMessages)
+        .values({ externalMessageId: `${message.channel}:${message.externalSenderId}:${message.externalMessageId}` })
+        .onConflictDoNothing()
+        .returning();
+      if (seen.length === 0) {
+        return { reply: null, duplicate: true };
+      }
+
       // 1. Liaison : un expéditeur inconnu qui envoie le code à 6 chiffres
       //    affiché dans l'application web lie son compte (usage unique).
       //    Les expéditeurs non liés ne laissent AUCUNE trace (pas de contenu
@@ -177,8 +190,8 @@ export function createChannelService(deps: ChannelServiceDeps) {
         return { reply: t(locale, 'unknown_link'), duplicate: false };
       }
 
-      // 2. Idempotence : le même message externe n'est jamais traité deux fois
-      //    (contrainte UNIQUE direction+external_message_id, conflit ignoré).
+      // 2. Journal des métadonnées du message (UNIQUE direction+external_id
+      //    = double filet de sécurité au niveau du tenant).
       const inserted = await db
         .insert(channelMessages)
         .values({

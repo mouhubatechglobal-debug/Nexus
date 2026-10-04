@@ -613,6 +613,17 @@ export const channelLinkCodes = pgTable(
   (table) => [index('link_codes_tenant_idx').on(table.tenantId)],
 );
 
+/**
+ * Idempotence GLOBALE des webhooks : réservée AVANT toute résolution
+ * d'identité (aucune FK — un message d'un expéditeur inconnu est déjà
+ * « vu » pour qu'un rejeu ne soit jamais traité deux fois, même pendant
+ * la transition non lié → lié). Sans contenu, sans métadonnée personnelle.
+ */
+export const channelSeenMessages = pgTable('channel_seen_messages', {
+  externalMessageId: text('external_message_id').primaryKey(),
+  seenAt: timestamp('seen_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** Demandes de suppression (RGPD) — avec preuve de suppression. */
 export const deletionRequests = pgTable(
   'deletion_requests',
