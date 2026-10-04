@@ -1,0 +1,47 @@
+/* ==========================================================================
+   NEXUS — jetons de design (design tokens)
+   Palette, typographie, rayons, ombres. Aucun style applicatif ici.
+   ========================================================================== */
+
+:root {
+  /* Palette imposée */
+  --bg-0: #04060f;
+  --bg-1: #0a1020;
+  --blue: #4f8dff;
+  --violet: #8b5cf6;
+  --cyan: #22d3ee;
+
+  /* Surfaces verre (glassmorphism) */
+  --glass-bg: linear-gradient(180deg, rgba(21, 31, 62, 0.5), rgba(10, 16, 32, 0.6));
+  --glass-bg-strong: rgba(9, 14, 30, 0.86);
+  --glass-border: rgba(139, 164, 255, 0.13);
+  --glass-shine: rgba(139, 164, 255, 0.32);
+
+  /* Texte */
+  --text-1: #eef2ff;
+  --text-2: #aab5d8;
+  --text-3: #7d89b3;
+
+  /* Sémantique */
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+
+  /* Typographie */
+  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Géométrie */
+  --radius: 16px;
+  --radius-sm: 10px;
+  --radius-xs: 8px;
+  --sidebar-w: 252px;
+  --topbar-h: 64px;
+  --content-max: 1400px;
+
+  /* Ombres & lueurs */
+  --glow-blue: 0 6px 26px rgba(79, 141, 255, 0.28);
+  --glow-violet: 0 6px 26px rgba(139, 92, 246, 0.26);
+  --ring-focus: 2px solid var(--blue);
+}

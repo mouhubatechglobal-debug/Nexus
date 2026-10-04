@@ -1,0 +1,33 @@
+# CI NEXUS — typecheck + tests + build (identiques aux commandes locales)
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Installation (workspaces)
+        run: npm ci
+
+      - name: Build des packages internes
+        run: npm run build:packages
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests (base PostgreSQL embarquée, réseau isolé)
+        run: npm test
+
+      - name: Build production (web)
+        run: npm run build
