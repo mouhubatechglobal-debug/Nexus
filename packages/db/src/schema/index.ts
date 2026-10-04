@@ -11,6 +11,8 @@
  */
 import {
   boolean,
+  unique,
+  varchar,
   index,
   integer,
   jsonb,
@@ -510,4 +512,141 @@ export const ideas = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('ideas_org_idx').on(table.organizationId)],
+);
+
+// ---------------------------------------------------------------------------
+// Canaux de messagerie (copilote de vie numérique) — @nexus/channels
+// ---------------------------------------------------------------------------
+
+export const channelEnum = pgEnum('channel_kind', ['telegram', 'whatsapp', 'mock']);
+export const consentEnum = pgEnum('consent_status', ['pending', 'granted', 'revoked']);
+export const messageKindEnum = pgEnum('message_kind', [
+  'text',
+  'photo',
+  'pdf',
+  'voice',
+  'forwarded',
+  'command',
+  'other',
+]);
+export const deletionScopeEnum = pgEnum('deletion_scope', ['all', 'channel']);
+export const deletionStatusEnum = pgEnum('deletion_status', ['pending', 'processing', 'done']);
+
+/**
+ * Liaison compte applicatif ↔ identité de messagerie.
+ * Consentement explicite ; `revoked` = plus aucun envoi autorisé.
+ */
+export const channelIdentities = pgTable(
+  'channel_identities',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    channel: channelEnum('channel').notNull(),
+    externalId: text('external_id').notNull(),
+    externalTag: text('external_tag'),
+    consent: consentEnum('consent').notNull().default('granted'),
+    linkedAt: timestamp('linked_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('channel_external_unique').on(table.channel, table.externalId),
+    index('channel_tenant_idx').on(table.tenantId),
+  ],
+);
+
+/**
+ * Journal des messages — MÉTADONNÉES SEULEMENT (minimisation : le contenu
+ * n'est jamais persisté). L'unicité (canal, id externe) garantit que le
+ * même message n'est jamais traité deux fois.
+ */
+export const channelMessages = pgTable(
+  'channel_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    identityId: uuid('identity_id')
+      .notNull()
+      .references(() => channelIdentities.id, { onDelete: 'cascade' }),
+    direction: text('direction').notNull(), // 'in' | 'out'
+    kind: messageKindEnum('kind').notNull(),
+    externalMessageId: text('external_message_id').notNull(),
+    forwarded: boolean('forwarded').notNull().default(false),
+    mediaBytes: integer('media_bytes'),
+    /** Réponse renvoyée à l'utilisateur (texte du bot, sans donnée sensible). */
+    replyKind: text('reply_kind'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('channel_message_idempotent').on(table.direction, table.externalMessageId),
+    index('channel_messages_identity_idx').on(table.identityId),
+  ],
+);
+
+/**
+ * Code à usage unique reliant un utilisateur (session web) à son identifiant
+ * de messagerie : expire vite, jamais réutilisable.
+ */
+export const channelLinkCodes = pgTable(
+  'channel_link_codes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    channel: channelEnum('channel').notNull(),
+    code: varchar('code', { length: 12 }).notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('link_codes_tenant_idx').on(table.tenantId)],
+);
+
+/** Demandes de suppression (RGPD) — avec preuve de suppression. */
+export const deletionRequests = pgTable(
+  'deletion_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    scope: deletionScopeEnum('scope').notNull(),
+    status: deletionStatusEnum('status').notNull().default('pending'),
+    /** Empreinte du décompte supprimé (preuve, sans donnée personnelle). */
+    proof: text('proof'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => [index('deletion_tenant_idx').on(table.tenantId)],
+);
+
+/** Journal d'accès — acteurs, actions, ressources ; IP hachée, jamais le contenu. */
+export const accessLogs = pgTable(
+  'access_logs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    actor: uuid('actor').references(() => users.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    resource: text('resource').notNull(),
+    ipHash: text('ip_hash'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('access_logs_tenant_idx').on(table.tenantId)],
 );
