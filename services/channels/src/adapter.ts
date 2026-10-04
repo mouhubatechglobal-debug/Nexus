@@ -67,7 +67,7 @@ export class MockAdapter implements ChannelAdapter {
   }
 
   parseWebhook({ body }: ParseWebhookInput): InboundMessage[] {
-    const payload = body as { messageId?: unknown; senderId?: unknown; kind?: unknown; text?: unknown; forwarded?: unknown };
+    const payload = body as { messageId?: unknown; senderId?: unknown; kind?: unknown; text?: unknown; forwarded?: unknown; mediaBytes?: unknown };
     if (typeof payload.messageId !== 'string' || typeof payload.senderId !== 'string') {
       throw new Error('mock: payload malformé');
     }
@@ -82,6 +82,7 @@ export class MockAdapter implements ChannelAdapter {
         kind,
         forwarded: payload.forwarded === true || kind === 'forwarded',
         text: typeof payload.text === 'string' ? payload.text : undefined,
+        mediaBytes: typeof payload.mediaBytes === 'number' ? payload.mediaBytes : undefined,
       },
     ];
   }

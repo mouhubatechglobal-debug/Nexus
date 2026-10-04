@@ -29,10 +29,6 @@ export interface ChannelServiceDeps {
   ipHashSalt: string;
 }
 
-/** Tenant provisoire pour les messages d'expéditeurs non encore liés. */
-const PENDING_TENANT = '00000000-0000-0000-0000-000000000001';
-const PENDING_IDENTITY = '00000000-0000-0000-0000-000000000002';
-
 function toIdentity(row: typeof channelIdentities.$inferSelect): ChannelIdentity {
   return channelIdentitySchema.parse({
     id: row.id,
@@ -157,31 +153,49 @@ export function createChannelService(deps: ChannelServiceDeps) {
      * routage des commandes, réponse adaptée. Le contenu n'est pas stocké.
      * Renvoie le texte à répondre (null = message dupliqué, rien à faire).
      */
-    async handleInbound(message: InboundMessage, locale: Locale = 'fr', ip = '0.0.0.0'): Promise<{ reply: string | null; duplicate: boolean }> {
-      // 1. Idempotence : le même message externe n'est jamais traité deux fois.
+    async handleInbound(message: InboundMessage, locale: Locale = 'fr', ip = '0.0.0.0'): Promise<{ reply: string | null; duplicate: boolean; identity?: ChannelIdentity }> {
+      // 1. Liaison : un expéditeur inconnu qui envoie le code à 6 chiffres
+      //    affiché dans l'application web lie son compte (usage unique).
+      //    Les expéditeurs non liés ne laissent AUCUNE trace (pas de contenu
+      //    ni de métadonnée de personnes non consentantes).
+      const identity = await this.findIdentity(message.channel, message.externalSenderId);
+      if (!identity) {
+        const code = message.text?.trim();
+        if (code && /^\d{6}$/.test(code)) {
+          try {
+            const linkedIdentity = await this.consumeLinkCode({
+              channel: message.channel,
+              code,
+              externalId: message.externalSenderId,
+            });
+            return { reply: t(locale, 'linked'), duplicate: false, identity: linkedIdentity };
+          } catch {
+            // Code invalide/expiré/déjà utilisé : message neutre (pas d'indice).
+            return { reply: t(locale, 'unknown_link'), duplicate: false };
+          }
+        }
+        return { reply: t(locale, 'unknown_link'), duplicate: false };
+      }
+
+      // 2. Idempotence : le même message externe n'est jamais traité deux fois
+      //    (contrainte UNIQUE direction+external_message_id, conflit ignoré).
       const inserted = await db
         .insert(channelMessages)
         .values({
-          tenantId: PENDING_TENANT,
-          identityId: PENDING_IDENTITY,
+          tenantId: identity.tenantId,
+          identityId: identity.id,
           direction: 'in',
           kind: message.kind,
           externalMessageId: `${message.channel}:${message.externalSenderId}:${message.externalMessageId}`,
           forwarded: message.forwarded,
-          mediaBytes: message.mediaBytes,
+          // Minimisation : seule la TAILLE du média est journalisée, jamais son contenu.
+          mediaBytes: message.mediaBytes ?? null,
         })
         .onConflictDoNothing()
         .returning();
       if (inserted.length === 0) {
         return { reply: null, duplicate: true };
       }
-
-      // 2. Liaison : identité inconnue ou consentement retiré.
-      const identity = await this.findIdentity(message.channel, message.externalSenderId);
-      if (!identity) {
-        return { reply: t(locale, 'unknown_link'), duplicate: false };
-      }
-      await db.update(channelMessages).set({ tenantId: identity.tenantId, identityId: identity.id }).where(eq(channelMessages.id, inserted[0]!.id));
       await db.insert(accessLogs).values({
         tenantId: identity.tenantId,
         actor: identity.userId,
