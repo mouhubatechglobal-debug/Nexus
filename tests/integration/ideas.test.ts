@@ -15,7 +15,7 @@ describe('Idées — réel, scopé organisation', () => {
   let alice: string;
   let bob: string;
   let orgAlice: string;
-  let orgBob: string;
+  let _orgBob: string;
 
   async function bootstrap(email: string, org: string): Promise<{ cookie: string; organizationId: string }> {
     const register = await handle.app.inject({
@@ -37,7 +37,7 @@ describe('Idées — réel, scopé organisation', () => {
     alice = a.cookie;
     orgAlice = a.organizationId;
     bob = b.cookie;
-    orgBob = b.organizationId;
+    _orgBob = b.organizationId;
   });
 
   afterAll(async () => {

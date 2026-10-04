@@ -52,9 +52,9 @@ function sendError(request: FastifyRequest, reply: FastifyReply, error: AppError
 }
 
 /** Enregistre le gestionnaire d'erreurs et le 404 normalisés. */
-export function registerErrorHandlers(
-  app: FastifyInstance<any, any, any, any, any>,
-): void {
+// App générique : accepte toute instance Fastify (typage réel du caller).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function registerErrorHandlers<TApp extends FastifyInstance<any, any, any, any, any>>(app: TApp): void {
   app.setErrorHandler((error: Error | FastifyError, request, reply) => {
     if (error instanceof AppError) {
       return sendError(request, reply, error);

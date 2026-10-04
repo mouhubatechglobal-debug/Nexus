@@ -254,7 +254,7 @@ export const api = {
     request<{ user: AuthUser }>('/v1/auth/login', { method: 'POST', ...body({ email, password }) }),
   register: (input: { email: string; password: string; displayName?: string; organizationName?: string }) =>
     request<{ user: AuthUser }>('/v1/auth/register', { method: 'POST', ...body(input) }),
-  logout: () => request<void>('/v1/auth/logout', { method: 'POST' }),
+  logout: () => request<undefined>('/v1/auth/logout', { method: 'POST' }),
 
   // Organisations
   organizations: () => request<{ data: Organization[] }>('/v1/organizations').then((r) => r.data),
@@ -272,7 +272,7 @@ export const api = {
   createProject: (input: { organizationId: string; name: string; description?: string }) =>
     request<Project>('/v1/projects', { method: 'POST', ...body(input) }),
   deleteProject: (projectId: string) =>
-    request<void>(`/v1/projects/${projectId}`, { method: 'DELETE' }),
+    request<undefined>(`/v1/projects/${projectId}`, { method: 'DELETE' }),
 
   // Brain
   brainList: (projectId: string, kind?: BrainKind) =>
@@ -280,7 +280,7 @@ export const api = {
   brainCreate: (projectId: string, input: { kind: BrainKind; title: string; content: string }) =>
     request<BrainEntry>(`/v1/projects/${projectId}/brain`, { method: 'POST', ...body(input) }),
   brainDelete: (projectId: string, entryId: string) =>
-    request<void>(`/v1/projects/${projectId}/brain/${entryId}`, { method: 'DELETE' }),
+    request<undefined>(`/v1/projects/${projectId}/brain/${entryId}`, { method: 'DELETE' }),
 
   // Forge — fichiers
   filesList: (projectId: string, prefix?: string) =>

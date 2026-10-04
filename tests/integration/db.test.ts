@@ -120,10 +120,11 @@ describe('@nexus/db — schéma, contraintes et migrations', () => {
   });
 
   it('le couple (organisation, slug) de projet est unique', async () => {
-    const [user] = await db.db
+    const [inserted] = await db.db
       .insert(users)
       .values({ email: 'carol@nexus.test', passwordHash: 'argon2id$placeholder' })
       .returning({ id: users.id });
+    void inserted;
 
     const [org] = await db.db
       .insert(organizations)
