@@ -25,6 +25,8 @@ export interface ChannelRoutesOptions {
   adapters: Partial<Record<Channel, ChannelAdapter>>;
   /** Secret de signature par canal. */
   secrets: Partial<Record<Channel, string>>;
+  /** État d'envoi par canal (honnête : RÉEL seulement si token présent). */
+  sendStatus: Partial<Record<Channel, { status: 'ok' | 'blocked'; reason: string }>>;
   db: Database;
 }
 
@@ -62,7 +64,7 @@ async function targetOrg(db: Database, userId: string, header: unknown): Promise
  */
 export async function channelRoutes(app: FastifyInstance, options: ChannelRoutesOptions): Promise<void> {
   const guard = createAuthGuard(options.authService);
-  const { db, channelService, adapters, secrets } = options;
+  const { db, channelService, adapters, secrets, sendStatus } = options;
 
   // Parseur JSON scopé : conserve le corps brut pour la vérification HMAC
   // des webhooks. Un JSON malformé renvoie une 400 propre (jamais un 500).
@@ -107,6 +109,24 @@ export async function channelRoutes(app: FastifyInstance, options: ChannelRoutes
       throw new AppError(404, ERROR_CODES.NOT_FOUND, 'Ressource introuvable.');
     }
     return { data: { unlinked: true } };
+  });
+
+  /** Doctor canaux : état HONNÊTE par canal (config réelle, jamais prétendu). */
+  app.get('/diagnostic', { preHandler: guard }, async (request) => {
+    const organizationId = await targetOrg(db, request.user!.id, request.headers['x-org-id']);
+    await requireOrgAccess(db, request.user!, organizationId, 'member');
+    const channels = ['mock', 'telegram', 'whatsapp'] as const;
+    return {
+      data: channels.map((channel) => {
+        const send = sendStatus[channel] ?? { status: 'blocked' as const, reason: 'Adaptateur non enregistré.' };
+        return {
+          channel,
+          webhook: secrets[channel] ? 'configured' : 'missing-secret',
+          send: send.status,
+          reason: send.reason,
+        };
+      }),
+    };
   });
 
   // --- Webhooks entrants (la signature est l'authentification) --------------

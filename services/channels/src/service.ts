@@ -1,5 +1,5 @@
 import { createHash, randomInt } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import {
   type Channel,
   type ChannelIdentity,
@@ -241,10 +241,30 @@ export function createChannelService(deps: ChannelServiceDeps) {
       return { reply: t(locale, 'receipt', { kind: message.kind }), duplicate: false };
     },
 
-    /** Envoi sortant : refuse toute identité sans consentement explicite. */
+    /** Fenêtre WhatsApp 24 h : vrai si un message entrant existe dans les 24 h. */
+    async withinWhatsAppWindow(identityId: string): Promise<boolean> {
+      const [last] = await db
+        .select({ createdAt: channelMessages.createdAt })
+        .from(channelMessages)
+        .where(and(eq(channelMessages.identityId, identityId), eq(channelMessages.direction, 'in')))
+        .orderBy(desc(channelMessages.createdAt))
+        .limit(1);
+      if (!last) return false;
+      return Date.now() - last.createdAt.getTime() < 24 * 60 * 60 * 1000;
+    },
+
+    /**
+     * Envoi sortant : refuse toute identité sans consentement explicite.
+     * Règle WhatsApp (Cloud API) : un message libre n'est autorisé que dans
+     * les 24 h suivant le dernier message de l'utilisateur ; hors fenêtre,
+     * utiliser sendTemplate avec un modèle APPROUVÉ côté Meta.
+     */
     async sendTo(adapter: ChannelAdapter, identity: ChannelIdentity, input: SendInput): Promise<{ externalId: string }> {
       if (identity.consent !== 'granted') {
         throw new Error('CONSENT_REQUIRED');
+      }
+      if (adapter.channel === 'whatsapp' && !(await this.withinWhatsAppWindow(identity.id))) {
+        throw new Error('WHATSAPP_WINDOW_EXPIRED: utiliser sendTemplate (modèle approuvé).');
       }
       const result = await adapter.send(input);
       await db.insert(channelMessages).values({

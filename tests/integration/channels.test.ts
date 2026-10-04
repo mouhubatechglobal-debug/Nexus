@@ -306,6 +306,24 @@ describe('ÉTAPE 1 — canaux copilote (webhooks, liaison, idempotence, isolatio
     expect(stillThere).toHaveLength(1);
   });
 
+  it('diagnostic canaux : état honnête par canal (mock ok, telegram/whatsapp blocked sans token)', async () => {
+    const response = await handle.app.inject({
+      method: 'GET',
+      url: '/v1/channels/diagnostic',
+      headers: { cookie: cookieA },
+    });
+    expect(response.statusCode).toBe(200);
+    const data = (response.json() as { data: { channel: string; webhook: string; send: string; reason: string }[] }).data;
+    const mock = data.find((entry) => entry.channel === 'mock');
+    const telegram = data.find((entry) => entry.channel === 'telegram');
+    const whatsapp = data.find((entry) => entry.channel === 'whatsapp');
+    expect(mock?.send).toBe('ok');
+    expect(telegram?.send).toBe('blocked');
+    expect(telegram?.reason).toContain('TELEGRAM_BOT_TOKEN');
+    expect(whatsapp?.send).toBe('blocked');
+    expect(whatsapp?.reason).toContain('Meta');
+  });
+
   it('sans session : /link-codes → 401 (liaison uniquement depuis l\u2019app web authentifiée)', async () => {
     const response = await handle.app.inject({
       method: 'POST',
@@ -376,6 +394,41 @@ describe('ÉTAPE 1 — canaux copilote (webhooks, liaison, idempotence, isolatio
     }) as typeof fetch);
     await expect(adapter.send({ externalId: 'x', text: 'y' })).rejects.toThrow(/BLOCKED/);
     expect(networkCalled).toBe(false);
+  });
+
+  it('fenêtre WhatsApp 24 h : envoi libre refusé hors fenêtre, ouvert après un message entrant', async () => {
+    const { WhatsAppAdapter, createChannelService } = await import('@nexus/channels');
+    // Service isolé sur la même base (sel IP distinct, sans effet).
+    const service = createChannelService({ db: db.db, ipHashSalt: 'sel-test' });
+    const adapter = new WhatsAppAdapter('token-factice', 'secret', 'phone-id');
+
+    // Liaison d'un expéditeur WhatsApp via code.
+    const { code } = await createLinkCode(cookieA, 'whatsapp');
+    const identity = await service.consumeLinkCode({ channel: 'whatsapp', code, externalId: '225900000001' });
+
+    // Aucun message entrant sur 24 h → fenêtre fermée → envoi libre refusé.
+    await expect(service.sendTo(adapter, identity, { externalId: '225900000001', text: 'rappel' })).rejects.toThrow(
+      /WHATSAPP_WINDOW_EXPIRED/,
+    );
+
+    // Un message entrant (webhook signé via l'API) ouvre la fenêtre.
+    const payload = JSON.stringify({
+      entry: [{ changes: [{ value: { messages: [{ id: 'wamid.win1', from: '225900000001', type: 'text', text: { body: 'coucou' } }] } }] }],
+    });
+    const webhook = await handle.app.inject({
+      method: 'POST',
+      url: '/v1/channels/webhooks/whatsapp',
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': whatsappSignature(payload) },
+      payload,
+    });
+    expect(webhook.statusCode).toBe(200);
+
+    // Fenêtre ouverte : l'erreur de fenêtre disparaît (l'envoi échoue ensuite
+    // côté réseau avec un token factice — comportement attendu, hors périmètre).
+    const networkError = await service.sendTo(adapter, identity, { externalId: '225900000001', text: 'réponse' }).catch(
+      (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)),
+    );
+    expect(networkError).not.toContain('WHATSAPP_WINDOW_EXPIRED');
   });
 
   it('adaptateur Telegram : signature webhook + parsing d\u2019un update réel (sans réseau)', async () => {

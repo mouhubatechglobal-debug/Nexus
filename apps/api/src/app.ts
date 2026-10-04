@@ -193,6 +193,15 @@ export async function buildApp(options: BuildAppOptions) {
       telegram: config.TELEGRAM_WEBHOOK_SECRET,
       whatsapp: config.WHATSAPP_APP_SECRET,
     },
+    sendStatus: {
+      mock: { status: 'ok', reason: 'Adaptateur en mémoire (tests et développement).' },
+      telegram: config.TELEGRAM_BOT_TOKEN
+        ? { status: 'ok', reason: 'TELEGRAM_BOT_TOKEN configuré.' }
+        : { status: 'blocked', reason: 'TELEGRAM_BOT_TOKEN absent — le définir pour activer l’envoi.' },
+      whatsapp: config.WHATSAPP_TOKEN && config.WHATSAPP_PHONE_NUMBER_ID
+        ? { status: 'ok', reason: 'WHATSAPP_TOKEN et WHATSAPP_PHONE_NUMBER_ID configurés.' }
+        : { status: 'blocked', reason: 'WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID absents — accès Meta requis.' },
+    },
     db: db.db,
   });
 

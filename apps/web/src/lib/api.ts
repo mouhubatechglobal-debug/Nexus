@@ -245,6 +245,35 @@ export interface Idea {
   updatedAt: string;
 }
 
+/** Copilote — canaux de messagerie (WhatsApp / Telegram). */
+export type ChannelKind = 'telegram' | 'whatsapp' | 'mock';
+
+export interface ChannelDiagnostic {
+  channel: ChannelKind;
+  webhook: 'configured' | 'missing-secret';
+  send: 'ok' | 'blocked';
+  reason: string;
+}
+
+export interface ChannelIdentity {
+  id: string;
+  tenantId: string;
+  userId: string;
+  channel: ChannelKind;
+  externalId: string;
+  externalTag: string | null;
+  consent: 'pending' | 'granted' | 'revoked';
+  linkedAt: string;
+  createdAt: string;
+}
+
+export interface ChannelLinkCode {
+  id: string;
+  channel: ChannelKind;
+  code: string;
+  expiresAt: string;
+}
+
 /* ------------------------------- Client ------------------------------- */
 
 export const api = {
@@ -362,6 +391,14 @@ export const api = {
 
   // Jobs — annulation (admin)
   jobCancel: (jobId: string) => request<{ jobId: string; status: string }>(`/v1/jobs/${jobId}`, { method: 'DELETE' }),
+
+  // Copilote — canaux de messagerie (liaison, identités, diagnostic)
+  channelDiagnostic: () => request<{ data: ChannelDiagnostic[] }>('/v1/channels/diagnostic').then((r) => r.data),
+  channelIdentities: () => request<{ data: ChannelIdentity[] }>('/v1/channels/identities').then((r) => r.data),
+  channelCreateLinkCode: (channel: ChannelKind) =>
+    request<{ data: ChannelLinkCode }>('/v1/channels/link-codes', { method: 'POST', ...body({ channel }) }).then((r) => r.data),
+  channelUnlink: (identityId: string) =>
+    request<{ data: { unlinked: boolean } }>(`/v1/channels/identities/${identityId}`, { method: 'DELETE' }).then((r) => r.data),
 };
 
 /** Sonde de santé (inchangée — Result typé). */
